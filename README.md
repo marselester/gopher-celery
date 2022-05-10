@@ -1,9 +1,16 @@
 # Gopher Celery
 
+[![Documentation](https://godoc.org/github.com/marselester/gopher-celery?status.svg)](https://pkg.go.dev/github.com/marselester/gopher-celery)
+[![Go Report Card](https://goreportcard.com/badge/github.com/marselester/gopher-celery)](https://goreportcard.com/report/github.com/marselester/gopher-celery)
+
 **⚠️ This is still a draft.**
 
-The objective of this small project is to provide
-a little bit more convenient API of https://github.com/gocelery/gocelery.
+The objective of this project is to provide
+a little bit more convenient API of https://github.com/gocelery/gocelery including:
+
+- smaller API surface
+- multiple queues support
+- running workers on demand
 
 The Celery app can be used as either a producer or consumer (worker).
 To send tasks to a queue for a worker to consume, use `Delay` method.
