@@ -3,6 +3,8 @@ package celery
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 
 	"github.com/go-kit/log"
 	"golang.org/x/sync/errgroup"
@@ -10,6 +12,9 @@ import (
 	"github.com/marselester/gopher-celery/internal/protocol"
 	"github.com/marselester/gopher-celery/internal/redis"
 )
+
+// Task is a Celery task which is executed with args, kwargs received from a task message.
+type Task func(args []interface{}, kwargs map[string]interface{})
 
 // Broker is responsible for receiving and sending task messages.
 // For example, it knows how to read a message from a given queue in Redis.
@@ -39,7 +44,7 @@ func NewApp(options ...Option) *App {
 			logger:     log.NewNopLogger(),
 			serializer: &protocol.JSONSerializer{},
 		},
-		taskPath:  make(map[string]interface{}),
+		task:      make(map[string]Task),
 		taskQueue: make(map[string]string),
 		sem:       make(chan struct{}, DefaultMaxWorkers),
 	}
@@ -57,9 +62,9 @@ type App struct {
 
 	// broker is the app's broker, e.g., Redis.
 	broker Broker
-	// taskPath maps a Celery task path to a task itself, e.g.,
+	// task maps a Celery task path to a task itself, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": func(){}.
-	taskPath map[string]interface{}
+	task map[string]Task
 	// taskQueue helps to determine which queue a task belongs to, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": "important".
 	taskQueue map[string]string
@@ -73,8 +78,8 @@ type App struct {
 //
 // Note, the method is not concurrency safe.
 // The tasks mustn't be registered after the app starts processing tasks.
-func (a *App) Register(path, queue string, task interface{}) {
-	a.taskPath[path] = task
+func (a *App) Register(path, queue string, task Task) {
+	a.task[path] = task
 	a.taskQueue[path] = queue
 }
 
@@ -108,7 +113,7 @@ func (a *App) Run(ctx context.Context) error {
 			default:
 				rawMsg, err := a.broker.Receive()
 				if err != nil {
-					a.conf.logger.Log("failed to receive a raw task message", "err", err)
+					a.conf.logger.Log("msg", "failed to receive a raw task message", "err", err)
 					continue
 				}
 				// No messages in the broker so far.
@@ -118,7 +123,7 @@ func (a *App) Run(ctx context.Context) error {
 
 				m, err := a.conf.serializer.Decode(rawMsg)
 				if err != nil {
-					a.conf.logger.Log("failed to decode raw task message", "raw", "rawMsg", "err", err)
+					a.conf.logger.Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
 					continue
 				}
 
@@ -130,6 +135,15 @@ func (a *App) Run(ctx context.Context) error {
 	go func() {
 		// Start a worker when there is a task.
 		for m := range msgs {
+			if a.task[m.Task] == nil {
+				a.conf.logger.Log("msg", "unregistered task", "taskmsg", m)
+				continue
+			}
+			if m.IsExpired() {
+				a.conf.logger.Log("msg", "task message expired", "taskmsg", m)
+				continue
+			}
+
 			select {
 			// Acquire a semaphore by sending a token.
 			case a.sem <- struct{}{}:
@@ -144,7 +158,7 @@ func (a *App) Run(ctx context.Context) error {
 				defer func() { <-a.sem }()
 
 				if err := a.executeTask(m); err != nil {
-					a.conf.logger.Log("msg", "task failed", "msg", m, "err", err)
+					a.conf.logger.Log("msg", "task failed", "taskmsg", m, "err", err)
 				}
 				return nil
 			})
@@ -154,6 +168,16 @@ func (a *App) Run(ctx context.Context) error {
 	return g.Wait()
 }
 
-func (a *App) executeTask(m *protocol.Message) error {
-	return nil
+// executeTask calls the task function with args and kwargs from the message.
+// If the task panics, the stack trace is returned as an error.
+func (a *App) executeTask(m *protocol.Message) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("unexpected task error: %v: %s", r, debug.Stack())
+		}
+	}()
+
+	task := a.task[m.Task]
+	task(m.Args, m.Kwargs)
+	return
 }

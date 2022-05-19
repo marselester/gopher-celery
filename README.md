@@ -17,7 +17,7 @@ To send tasks to a queue for a worker to consume, use `Delay` method.
 In order to process a task you should register it using `Register` method.
 
 For example, whenever a task `mytask` is popped from `important` queue,
-the Go function `func(a, b int) {}` is executed.
+the Go function is executed with args and kwargs obtained from the task message.
 By default Redis broker (localhost) is used with json task message serialization.
 
 ```go
@@ -25,7 +25,7 @@ app := celery.NewApp()
 app.Register(
 	"myproject.apps.myapp.tasks.mytask",
 	"important",
-	func(a, b int) {},
+	func(args []interface{}, kwargs map[string]interface{}) {},
 )
 if err := app.Run(context.Background()); err != nil {
 	log.Printf("celery worker error: %v", err)
