@@ -13,9 +13,6 @@ import (
 	"github.com/marselester/gopher-celery/internal/redis"
 )
 
-// Task is a Celery task which is executed with args, kwargs received from a task message.
-type Task func(args []interface{}, kwargs map[string]interface{})
-
 // Broker is responsible for receiving and sending task messages.
 // For example, it knows how to read a message from a given queue in Redis.
 // The messages can be in defferent formats depending on Celery protocol version.
@@ -33,17 +30,21 @@ type Broker interface {
 func NewApp(options ...Option) *App {
 	app := App{
 		conf: Config{
-			logger:   log.NewNopLogger(),
-			registry: protocol.NewSerializerRegistry(),
+			logger:     log.NewNopLogger(),
+			registry:   protocol.NewSerializerRegistry(),
+			format:     SerializerJSON,
+			protocol:   ProtocolV2,
+			maxWorkers: DefaultMaxWorkers,
 		},
-		task:      make(map[string]Task),
+		task:      make(map[string]func(*TaskParam)),
 		taskQueue: make(map[string]string),
-		sem:       make(chan struct{}, DefaultMaxWorkers),
 	}
 
 	for _, opt := range options {
 		opt(&app.conf)
 	}
+	app.sem = make(chan struct{}, app.conf.maxWorkers)
+
 	return &app
 }
 
@@ -56,7 +57,7 @@ type App struct {
 	broker Broker
 	// task maps a Celery task path to a task itself, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": func(){}.
-	task map[string]Task
+	task map[string]func(*TaskParam)
 	// taskQueue helps to determine which queue a task belongs to, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": "important".
 	taskQueue map[string]string
@@ -70,7 +71,7 @@ type App struct {
 //
 // Note, the method is not concurrency safe.
 // The tasks mustn't be registered after the app starts processing tasks.
-func (a *App) Register(path, queue string, task Task) {
+func (a *App) Register(path, queue string, task func(*TaskParam)) {
 	a.task[path] = task
 	a.taskQueue[path] = queue
 }
@@ -81,7 +82,7 @@ func (a *App) Delay(path, queue string, payload interface{}) error {
 }
 
 // Run launches the workers that process the tasks.
-// The caller mustn't register any new tasks.
+// The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
@@ -170,6 +171,10 @@ func (a *App) executeTask(m *protocol.Task) (err error) {
 	}()
 
 	task := a.task[m.Name]
-	task(m.Args, m.Kwargs)
+	p := TaskParam{
+		args:   m.Args,
+		kwargs: m.Kwargs,
+	}
+	task(&p)
 	return
 }

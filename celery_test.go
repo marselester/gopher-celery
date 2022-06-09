@@ -12,8 +12,8 @@ func TestExecuteTaskPanic(t *testing.T) {
 	a.Register(
 		"myproject.apps.myapp.tasks.mytask",
 		"important",
-		func(args []interface{}, kwargs map[string]interface{}) {
-			_ = args[100]
+		func(p *TaskParam) {
+			_ = p.Args()[100]
 		},
 	)
 

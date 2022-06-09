@@ -26,7 +26,7 @@ app := celery.NewApp()
 app.Register(
 	"myproject.apps.myapp.tasks.mytask",
 	"important",
-	func(args []interface{}, kwargs map[string]interface{}) {},
+	func(p *celery.TaskParam) {},
 )
 if err := app.Run(context.Background()); err != nil {
 	log.Printf("celery worker error: %v", err)
