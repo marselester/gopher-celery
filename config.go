@@ -7,11 +7,15 @@ import (
 	"github.com/marselester/gopher-celery/internal/protocol"
 )
 
-type SerializerFormat string
-
 // The task message serializers.
 const (
-	SerializerJSON SerializerFormat = "json"
+	SerializerJSON = "json"
+)
+
+// Supported protocol versions.
+const (
+	ProtocolV1 = 1
+	ProtocolV2 = 2
 )
 
 // DefaultMaxWorkers is the default upper limit of goroutines
@@ -26,13 +30,29 @@ const DefaultMaxWorkers = 1000
 // Option sets up a Config.
 type Option func(*Config)
 
-// WithSerializer sets a serializer format, e.g., json.
+// WithTaskSerializer sets a serializer format, e.g.,
+// the message's body is encoded in JSON when a task is sent to the broker.
 // It is equivalent to CELERY_TASK_SERIALIZER in Python.
-func WithSerializer(format SerializerFormat) Option {
+func WithTaskSerializer(format string) Option {
 	return func(c *Config) {
 		switch format {
-		case "json":
-			c.serializer = &protocol.JSONSerializer{}
+		case SerializerJSON:
+			c.format = format
+		default:
+			c.format = SerializerJSON
+		}
+	}
+}
+
+// WithTaskProtocol sets the default task message protocol version used to send tasks.
+// It is equivalent to CELERY_TASK_PROTOCOL in Python.
+func WithTaskProtocol(version int) Option {
+	return func(c *Config) {
+		switch version {
+		case 1, 2:
+			c.protocol = version
+		default:
+			c.protocol = 2
 		}
 	}
 }
@@ -63,6 +83,8 @@ func WithMaxWorkers(n int) Option {
 type Config struct {
 	logger     log.Logger
 	pool       *redis.Pool
-	serializer MessageSerializer
+	registry   *protocol.SerializerRegistry
+	format     string
+	protocol   int
 	maxWorkers int
 }

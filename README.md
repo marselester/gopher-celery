@@ -11,6 +11,7 @@ a little bit more convenient API of https://github.com/gocelery/gocelery includi
 - smaller API surface
 - multiple queues support
 - running workers on demand
+- support for protocol v1 and v2
 
 The Celery app can be used as either a producer or consumer (worker).
 To send tasks to a queue for a worker to consume, use `Delay` method.

@@ -27,22 +27,14 @@ type Broker interface {
 	Receive() ([]byte, error)
 }
 
-// MessageSerializer encodes/decodes a task message, e.g., json, yaml, msgpack.
-type MessageSerializer interface {
-	// Encode encodes the message into the given byte slice.
-	Encode(m *protocol.Message, raw []byte) error
-	// Decode decodes the raw message.
-	Decode(raw []byte) (*protocol.Message, error)
-}
-
 // NewApp creates a Celery app.
 // The default broker is Redis assumed to run on localhost.
 // The default message serializer is json.
 func NewApp(options ...Option) *App {
 	app := App{
 		conf: Config{
-			logger:     log.NewNopLogger(),
-			serializer: &protocol.JSONSerializer{},
+			logger:   log.NewNopLogger(),
+			registry: protocol.NewSerializerRegistry(),
 		},
 		task:      make(map[string]Task),
 		taskQueue: make(map[string]string),
@@ -99,7 +91,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	a.broker = redis.NewBroker(qq, redis.WithPool(a.conf.pool))
 
-	msgs := make(chan *protocol.Message, 1)
+	msgs := make(chan *protocol.Task, 1)
 	g.Go(func() error {
 		defer close(msgs)
 
@@ -121,7 +113,7 @@ func (a *App) Run(ctx context.Context) error {
 					continue
 				}
 
-				m, err := a.conf.serializer.Decode(rawMsg)
+				m, err := a.conf.registry.Decode(rawMsg)
 				if err != nil {
 					a.conf.logger.Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
 					continue
@@ -135,7 +127,7 @@ func (a *App) Run(ctx context.Context) error {
 	go func() {
 		// Start a worker when there is a task.
 		for m := range msgs {
-			if a.task[m.Task] == nil {
+			if a.task[m.Name] == nil {
 				a.conf.logger.Log("msg", "unregistered task", "taskmsg", m)
 				continue
 			}
@@ -170,14 +162,14 @@ func (a *App) Run(ctx context.Context) error {
 
 // executeTask calls the task function with args and kwargs from the message.
 // If the task panics, the stack trace is returned as an error.
-func (a *App) executeTask(m *protocol.Message) (err error) {
+func (a *App) executeTask(m *protocol.Task) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("unexpected task error: %v: %s", r, debug.Stack())
 		}
 	}()
 
-	task := a.task[m.Task]
+	task := a.task[m.Name]
 	task(m.Args, m.Kwargs)
 	return
 }
