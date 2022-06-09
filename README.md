@@ -17,6 +17,11 @@ The Celery app can be used as either a producer or consumer (worker).
 To send tasks to a queue for a worker to consume, use `Delay` method.
 In order to process a task you should register it using `Register` method.
 
+```python
+def mytask(a, b):
+    println(a + b)
+```
+
 For example, whenever a task `mytask` is popped from `important` queue,
 the Go function is executed with args and kwargs obtained from the task message.
 By default Redis broker (localhost) is used with json task message serialization.
@@ -26,7 +31,10 @@ app := celery.NewApp()
 app.Register(
 	"myproject.apps.myapp.tasks.mytask",
 	"important",
-	func(p *celery.TaskParam) {},
+	func(p *celery.TaskParam) {
+		p.NameArgs("a", "b")
+		fmt.Println(p.MustInt("a") + p.MustInt("b"))
+	},
 )
 if err := app.Run(context.Background()); err != nil {
 	log.Printf("celery worker error: %v", err)

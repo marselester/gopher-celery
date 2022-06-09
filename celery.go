@@ -171,10 +171,7 @@ func (a *App) executeTask(m *protocol.Task) (err error) {
 	}()
 
 	task := a.task[m.Name]
-	p := TaskParam{
-		args:   m.Args,
-		kwargs: m.Kwargs,
-	}
-	task(&p)
+	p := NewTaskParam(m.Args, m.Kwargs)
+	task(p)
 	return
 }
