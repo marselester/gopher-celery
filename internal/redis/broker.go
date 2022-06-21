@@ -32,9 +32,8 @@ func WithPool(pool *redis.Pool) Option {
 
 // NewBroker creates a broker backed by Redis.
 // By default it connects to localhost.
-func NewBroker(queues []string, options ...Option) *Broker {
+func NewBroker(options ...Option) *Broker {
 	br := Broker{
-		queues:         queues,
 		receiveTimeout: DefaultReceiveTimeout,
 	}
 	for _, opt := range options {
@@ -60,8 +59,15 @@ type Broker struct {
 }
 
 // Send inserts the specified message at the head of the queue using LPUSH command.
+// Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
 	return nil
+}
+
+// Observe sets the queues from which the tasks should be received.
+// Note, the method is not concurrency safe.
+func (br *Broker) Observe(queues []string) {
+	br.queues = queues
 }
 
 // Receive fetches a Celery task message from a tail of one of the queues in Redis.
