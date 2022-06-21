@@ -6,7 +6,19 @@
 **⚠️ This is still a draft.**
 
 The objective of this project is to provide
-a little bit more convenient API of https://github.com/gocelery/gocelery including:
+the very basic mechanism to efficiently produce and consume Celery tasks on Go side.
+Therefore there are no plans to support all the rich features the Python version provides,
+such as tasks chains, etc.
+Even task result backend has no practical value in the context of Gopher Celery,
+so it wasn't taken into account.
+Note, Celery has [no result backend](https://docs.celeryq.dev/en/stable/userguide/tasks.html?#result-backends)
+enabled by default (it incurs overhead).
+
+Typically one would want to use Gopher Celery when certain tasks on Python side
+take too long to complete or there is a big volume of tasks requiring lots of Python workers
+(expensive infrastructure).
+
+This project offers a little bit more convenient API of https://github.com/gocelery/gocelery including:
 
 - smaller API surface
 - multiple queues support
@@ -31,7 +43,7 @@ app := celery.NewApp()
 app.Register(
 	"myproject.apps.myapp.tasks.mytask",
 	"important",
-	func(p *celery.TaskParam) {
+	func(ctx context.Context, p *celery.TaskParam) {
 		p.NameArgs("a", "b")
 		fmt.Println(p.MustInt("a") + p.MustInt("b"))
 	},
@@ -77,6 +89,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/gomodule/redigo/redis"
 	celery "github.com/marselester/gopher-celery"
+	redisbroker "github.com/marselester/gopher-celery/broker/redis"
 )
 
 func main() {
@@ -110,8 +123,11 @@ func main() {
 	}
 	c.Close()
 
+	broker := redisbroker.NewBroker(
+		redisbroker.WithPool(&pool),
+	)
 	app := celery.NewApp(
-		celery.WithRedisBroker(&pool),
+		celery.WithBroker(broker),
 		celery.WithLogger(logger),
 		celery.WithMaxWorkers(celery.DefaultMaxWorkers),
 	)

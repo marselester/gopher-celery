@@ -7,26 +7,35 @@ import (
 	"runtime/debug"
 
 	"github.com/go-kit/log"
+	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/marselester/gopher-celery/broker/redis"
 	"github.com/marselester/gopher-celery/internal/protocol"
-	"github.com/marselester/gopher-celery/internal/redis"
 )
+
+// TaskF represents a Celery task implemented by the client.
+type TaskF func(context.Context, *TaskParam)
 
 // Broker is responsible for receiving and sending task messages.
 // For example, it knows how to read a message from a given queue in Redis.
 // The messages can be in defferent formats depending on Celery protocol version.
 type Broker interface {
 	// Send puts a message to a queue.
+	// Note, the method is safe to call concurrently.
 	Send(msg []byte, queue string) error
+	// Observe sets the queues from which the tasks should be received.
+	// Note, the method is not concurrency safe.
+	Observe(queues []string)
 	// Receive returns a raw message from one of the queues.
 	// It blocks until there is a message available for consumption.
+	// Note, the method is not concurrency safe.
 	Receive() ([]byte, error)
 }
 
 // NewApp creates a Celery app.
 // The default broker is Redis assumed to run on localhost.
-// The default message serializer is json.
+// When producing tasks the default message serializer is json and protocol is v2.
 func NewApp(options ...Option) *App {
 	app := App{
 		conf: Config{
@@ -36,7 +45,7 @@ func NewApp(options ...Option) *App {
 			protocol:   ProtocolV2,
 			maxWorkers: DefaultMaxWorkers,
 		},
-		task:      make(map[string]func(*TaskParam)),
+		task:      make(map[string]TaskF),
 		taskQueue: make(map[string]string),
 	}
 
@@ -44,6 +53,10 @@ func NewApp(options ...Option) *App {
 		opt(&app.conf)
 	}
 	app.sem = make(chan struct{}, app.conf.maxWorkers)
+
+	if app.conf.broker == nil {
+		app.conf.broker = redis.NewBroker()
+	}
 
 	return &app
 }
@@ -53,11 +66,9 @@ type App struct {
 	// conf represents app settings.
 	conf Config
 
-	// broker is the app's broker, e.g., Redis.
-	broker Broker
 	// task maps a Celery task path to a task itself, e.g.,
-	// "myproject.apps.myapp.tasks.mytask": func(){}.
-	task map[string]func(*TaskParam)
+	// "myproject.apps.myapp.tasks.mytask": TaskF.
+	task map[string]TaskF
 	// taskQueue helps to determine which queue a task belongs to, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": "important".
 	taskQueue map[string]string
@@ -67,21 +78,35 @@ type App struct {
 
 // Register associates the task with given Python path and queue.
 // For example, when "myproject.apps.myapp.tasks.mytask"
-// is seen in "important" queue, the func(){} task is executed.
+// is seen in "important" queue, the TaskF task is executed.
 //
 // Note, the method is not concurrency safe.
 // The tasks mustn't be registered after the app starts processing tasks.
-func (a *App) Register(path, queue string, task func(*TaskParam)) {
+func (a *App) Register(path, queue string, task TaskF) {
 	a.task[path] = task
 	a.taskQueue[path] = queue
 }
 
 // Delay places the task associated with given Python path into queue.
-func (a *App) Delay(path, queue string, payload interface{}) error {
+func (a *App) Delay(path, queue string, args ...interface{}) error {
+	m := protocol.Task{
+		ID:   uuid.NewString(),
+		Name: path,
+		Args: args,
+	}
+	rawMsg, err := a.conf.registry.Encode(a.conf.format, a.conf.protocol, &m)
+	if err != nil {
+		return fmt.Errorf("failed to encode task message: %w", err)
+	}
+
+	if err = a.conf.broker.Send(rawMsg, queue); err != nil {
+		return fmt.Errorf("failed to send task message to broker: %w", err)
+	}
 	return nil
 }
 
-// Run launches the workers that process the tasks.
+// Run launches the workers that process the tasks received from the broker.
+// The call is blocking until ctx is cancelled.
 // The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
@@ -90,7 +115,7 @@ func (a *App) Run(ctx context.Context) error {
 	for k := range a.taskQueue {
 		qq = append(qq, a.taskQueue[k])
 	}
-	a.broker = redis.NewBroker(qq, redis.WithPool(a.conf.pool))
+	a.conf.broker.Observe(qq)
 
 	msgs := make(chan *protocol.Task, 1)
 	g.Go(func() error {
@@ -102,9 +127,9 @@ func (a *App) Run(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil
 			default:
-				rawMsg, err := a.broker.Receive()
+				rawMsg, err := a.conf.broker.Receive()
 				if err != nil {
 					a.conf.logger.Log("msg", "failed to receive a raw task message", "err", err)
 					continue
@@ -150,7 +175,7 @@ func (a *App) Run(ctx context.Context) error {
 				// Release a semaphore by discarding a token.
 				defer func() { <-a.sem }()
 
-				if err := a.executeTask(m); err != nil {
+				if err := a.executeTask(ctx, m); err != nil {
 					a.conf.logger.Log("msg", "task failed", "taskmsg", m, "err", err)
 				}
 				return nil
@@ -163,7 +188,7 @@ func (a *App) Run(ctx context.Context) error {
 
 // executeTask calls the task function with args and kwargs from the message.
 // If the task panics, the stack trace is returned as an error.
-func (a *App) executeTask(m *protocol.Task) (err error) {
+func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("unexpected task error: %v: %s", r, debug.Stack())
@@ -172,6 +197,6 @@ func (a *App) executeTask(m *protocol.Task) (err error) {
 
 	task := a.task[m.Name]
 	p := NewTaskParam(m.Args, m.Kwargs)
-	task(p)
+	task(ctx, p)
 	return
 }

@@ -2,7 +2,6 @@ package celery
 
 import (
 	"github.com/go-kit/log"
-	"github.com/gomodule/redigo/redis"
 
 	"github.com/marselester/gopher-celery/internal/protocol"
 )
@@ -57,10 +56,10 @@ func WithTaskProtocol(version int) Option {
 	}
 }
 
-// WithRedisBroker sets Redis as a broker.
-func WithRedisBroker(pool *redis.Pool) Option {
+// WithBroker allows a caller to replace the default broker.
+func WithBroker(broker Broker) Option {
 	return func(c *Config) {
-		c.pool = pool
+		c.broker = broker
 	}
 }
 
@@ -82,7 +81,7 @@ func WithMaxWorkers(n int) Option {
 // Config represents Celery settings.
 type Config struct {
 	logger     log.Logger
-	pool       *redis.Pool
+	broker     Broker
 	registry   *protocol.SerializerRegistry
 	format     string
 	protocol   int
