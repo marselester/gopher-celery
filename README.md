@@ -25,6 +25,8 @@ This project offers a little bit more convenient API of https://github.com/gocel
 - running workers on demand
 - support for protocol v1 and v2
 
+## Usage
+
 The Celery app can be used as either a producer or consumer (worker).
 To send tasks to a queue for a worker to consume, use `Delay` method.
 In order to process a task you should register it using `Register` method.
@@ -136,3 +138,75 @@ func main() {
 ```
 
 </details>
+
+## Testing
+
+Run the tests.
+
+```sh
+$ go test ./...
+```
+
+Benchmarks help to spot performance changes as the project evolves
+and also compare performance of serializers.
+For example, based on the results below the protocol v2 is faster than v1 when encoding args:
+
+- 350 nanoseconds mean time, 3 allocations (248 bytes) with 0% variation across the samples
+- 1.21 microseconds mean time, 4 allocations (672 bytes) with 0% variation across the samples
+
+It is recommended to run benchmarks multiple times and check
+how stable they are using [Benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat) tool.
+
+```sh
+$ go test -bench=. -benchmem -count=10 ./internal/... | tee bench-new.txt
+```
+
+<details>
+
+<summary>
+
+```sh
+$ benchstat bench-old.txt
+```
+
+</summary>
+
+```
+name                                  time/op
+JSONSerializerEncode_v2NoParams-12    2.97ns ± 1%
+JSONSerializerEncode_v2Args-12         350ns ± 0%
+JSONSerializerEncode_v2Kwargs-12       582ns ± 0%
+JSONSerializerEncode_v2ArgsKwargs-12   788ns ± 1%
+JSONSerializerEncode_v1NoParams-12    1.12µs ± 1%
+JSONSerializerEncode_v1Args-12        1.21µs ± 0%
+JSONSerializerEncode_v1Kwargs-12      1.68µs ± 0%
+JSONSerializerEncode_v1ArgsKwargs-12  1.77µs ± 0%
+
+name                                  alloc/op
+JSONSerializerEncode_v2NoParams-12     0.00B
+JSONSerializerEncode_v2Args-12          248B ± 0%
+JSONSerializerEncode_v2Kwargs-12        472B ± 0%
+JSONSerializerEncode_v2ArgsKwargs-12    528B ± 0%
+JSONSerializerEncode_v1NoParams-12      672B ± 0%
+JSONSerializerEncode_v1Args-12          672B ± 0%
+JSONSerializerEncode_v1Kwargs-12      1.00kB ± 0%
+JSONSerializerEncode_v1ArgsKwargs-12  1.00kB ± 0%
+
+name                                  allocs/op
+JSONSerializerEncode_v2NoParams-12      0.00
+JSONSerializerEncode_v2Args-12          3.00 ± 0%
+JSONSerializerEncode_v2Kwargs-12        7.00 ± 0%
+JSONSerializerEncode_v2ArgsKwargs-12    8.00 ± 0%
+JSONSerializerEncode_v1NoParams-12      4.00 ± 0%
+JSONSerializerEncode_v1Args-12          4.00 ± 0%
+JSONSerializerEncode_v1Kwargs-12        10.0 ± 0%
+JSONSerializerEncode_v1ArgsKwargs-12    10.0 ± 0%
+```
+
+</details>
+
+The old and new stats are compared as follows.
+
+```sh
+$ benchstat bench-old.txt bench-new.txt
+```

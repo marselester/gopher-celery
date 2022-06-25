@@ -61,7 +61,11 @@ type Broker struct {
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
-	return nil
+	conn := br.pool.Get()
+	defer conn.Close()
+
+	_, err := conn.Do("LPUSH", q, m)
+	return err
 }
 
 // Observe sets the queues from which the tasks should be received.

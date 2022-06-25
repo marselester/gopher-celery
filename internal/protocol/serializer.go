@@ -10,10 +10,19 @@ import (
 
 // Task represents a task message that provides essential params to run a task.
 type Task struct {
-	ID      string
-	Name    string
-	Args    []interface{}
-	Kwargs  map[string]interface{}
+	// ID id a unique id of the task in UUID v4 format (required).
+	ID string
+	// Name is a name of the task (required).
+	Name string
+	// Args is a list of arguments.
+	// It will be an empty list if not provided.
+	Args []interface{}
+	// Kwargs is a dictionary of keyword arguments.
+	// It will be an empty dictionary if not provided.
+	Kwargs map[string]interface{}
+	// Expires is an expiration date in ISO 8601 format.
+	// If not provided the message will never expire.
+	// The message will be expired when the message is received and the expiration date has been exceeded.
 	Expires time.Time
 }
 
@@ -35,11 +44,11 @@ type Serializer interface {
 
 // NewSerializerRegistry creates a registry of serializers.
 func NewSerializerRegistry() *SerializerRegistry {
-	var js JSONSerializer
+	js := NewJSONSerializer()
 	r := SerializerRegistry{
 		serializers: map[string]Serializer{
-			"json":             &js,
-			"application/json": &js,
+			"json":             js,
+			"application/json": js,
 		},
 	}
 	return &r

@@ -1,13 +1,30 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 )
 
+// NewJSONSerializer returns JSONSerializer.
+func NewJSONSerializer() *JSONSerializer {
+	return &JSONSerializer{
+		pool: sync.Pool{New: func() interface{} {
+			return &bytes.Buffer{}
+		}},
+		now: time.Now,
+	}
+}
+
 // JSONSerializer encodes/decodes a task messages in JSON format.
-type JSONSerializer struct{}
+// The zero value is not usable.
+type JSONSerializer struct {
+	pool sync.Pool
+	now  func() time.Time
+}
 
 // Decode parses the JSON-encoded message body s
 // depending on Celery protocol version (v1 or v2).
@@ -46,6 +63,8 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 
 		t.Args = args
 		t.Kwargs = kwargs
+	default:
+		return fmt.Errorf("unknown protocol version %d", p)
 	}
 
 	return nil
@@ -53,5 +72,114 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 
 // Encode encodes task t using protocol version p and returns the message body s.
 func (ser *JSONSerializer) Encode(p int, t *Task) (s string, err error) {
-	return "", nil
+	switch p {
+	case 1:
+		return ser.encodeV1(p, t)
+	case 2:
+		return ser.encodeV2(p, t)
+	default:
+		return "", fmt.Errorf("unknown protocol version %d", p)
+	}
+}
+
+// jsontask is an auxiliary task struct to encode the message in json.
+type jsontask struct {
+	ID      string          `json:"id"`
+	Task    string          `json:"task"`
+	Args    []interface{}   `json:"args"`
+	Kwargs  json.RawMessage `json:"kwargs"`
+	Expires *string         `json:"expires"`
+	// Retries is a current number of times this task has been retried.
+	// It's always set to zero.
+	Retries int `json:"retries"`
+	// ETA is an estimated time of arrival in ISO 8601 format, e.g., 2009-11-17T12:30:56.527191.
+	// If not provided the message isn't scheduled, but will be executed ASAP.
+	ETA string `json:"eta"`
+	// UTC indicates to use the UTC timezone or the current local timezone.
+	UTC bool `json:"utc"`
+}
+
+// jsonNoKwargs helps to reduce allocs in encodeV1 when no kwargs are passed.
+var jsonNoKwargs = json.RawMessage("{}")
+
+func (ser *JSONSerializer) encodeV1(p int, t *Task) (s string, err error) {
+	buf := ser.pool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		ser.pool.Put(buf)
+	}()
+
+	v := jsontask{
+		ID:     t.ID,
+		Task:   t.Name,
+		Args:   t.Args,
+		Kwargs: jsonNoKwargs,
+		ETA:    ser.now().Format(time.RFC3339),
+		UTC:    true,
+	}
+	if t.Args == nil {
+		v.Args = make([]interface{}, 0)
+	}
+	if t.Kwargs != nil {
+		if v.Kwargs, err = json.Marshal(t.Kwargs); err != nil {
+			return "", fmt.Errorf("kwargs json encode: %w", err)
+		}
+	}
+	if !t.Expires.IsZero() {
+		s := t.Expires.Format(time.RFC3339)
+		v.Expires = &s
+	}
+
+	js := json.NewEncoder(buf)
+	if err = js.Encode(v); err != nil {
+		return "", fmt.Errorf("json encode: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
+
+const (
+	// jsonV2opts represents blank task options in protocol v2.
+	// They are blank because none of those features are supported here.
+	jsonV2opts = `{"callbacks":null,"errbacks":null,"chain":null,"chord":null}`
+	// jsonV2noparams is a base64+json encoded task with no args/kwargs when protocol v2 is used.
+	// It helps to reduce allocs.
+	jsonV2noparams = "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0="
+)
+
+func (ser *JSONSerializer) encodeV2(p int, t *Task) (s string, err error) {
+	if t.Args == nil && t.Kwargs == nil {
+		return jsonV2noparams, nil
+	}
+
+	buf := ser.pool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		ser.pool.Put(buf)
+	}()
+
+	buf.WriteRune('[')
+	{
+		js := json.NewEncoder(buf)
+		if t.Args == nil {
+			buf.WriteString("[]")
+		} else if err = js.Encode(t.Args); err != nil {
+			return "", fmt.Errorf("args json encode: %w", err)
+		}
+
+		buf.WriteRune(',')
+
+		if t.Kwargs == nil {
+			buf.WriteString("{}")
+		} else if err = js.Encode(t.Kwargs); err != nil {
+			return "", fmt.Errorf("kwargs json encode: %w", err)
+		}
+
+		buf.WriteRune(',')
+
+		buf.WriteString(jsonV2opts)
+	}
+	buf.WriteRune(']')
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
 }
