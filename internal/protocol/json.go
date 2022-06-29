@@ -37,7 +37,7 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 
 	switch p {
 	case 1:
-		var body messageV1Body
+		var body inboundMessageV1Body
 		if err := json.Unmarshal(b, &body); err != nil {
 			return fmt.Errorf("json decode: %w", err)
 		}
@@ -72,14 +72,10 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 
 // Encode encodes task t using protocol version p and returns the message body s.
 func (ser *JSONSerializer) Encode(p int, t *Task) (s string, err error) {
-	switch p {
-	case 1:
-		return ser.encodeV1(p, t)
-	case 2:
-		return ser.encodeV2(p, t)
-	default:
-		return "", fmt.Errorf("unknown protocol version %d", p)
+	if p == 1 {
+		return ser.encodeV1(t)
 	}
+	return ser.encodeV2(t)
 }
 
 // jsontask is an auxiliary task struct to encode the message in json.
@@ -99,21 +95,12 @@ type jsontask struct {
 	UTC bool `json:"utc"`
 }
 
-// jsonNoKwargs helps to reduce allocs in encodeV1 when no kwargs are passed.
-var jsonNoKwargs = json.RawMessage("{}")
-
-func (ser *JSONSerializer) encodeV1(p int, t *Task) (s string, err error) {
-	buf := ser.pool.Get().(*bytes.Buffer)
-	defer func() {
-		buf.Reset()
-		ser.pool.Put(buf)
-	}()
-
+func (ser *JSONSerializer) encodeV1(t *Task) (s string, err error) {
 	v := jsontask{
 		ID:     t.ID,
 		Task:   t.Name,
 		Args:   t.Args,
-		Kwargs: jsonNoKwargs,
+		Kwargs: jsonEmptyMap,
 		ETA:    ser.now().Format(time.RFC3339),
 		UTC:    true,
 	}
@@ -130,8 +117,13 @@ func (ser *JSONSerializer) encodeV1(p int, t *Task) (s string, err error) {
 		v.Expires = &s
 	}
 
-	js := json.NewEncoder(buf)
-	if err = js.Encode(v); err != nil {
+	buf := ser.pool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		ser.pool.Put(buf)
+	}()
+
+	if err = json.NewEncoder(buf).Encode(&v); err != nil {
 		return "", fmt.Errorf("json encode: %w", err)
 	}
 
@@ -147,7 +139,7 @@ const (
 	jsonV2noparams = "W1tdLCB7fSwgeyJjYWxsYmFja3MiOiBudWxsLCAiZXJyYmFja3MiOiBudWxsLCAiY2hhaW4iOiBudWxsLCAiY2hvcmQiOiBudWxsfV0="
 )
 
-func (ser *JSONSerializer) encodeV2(p int, t *Task) (s string, err error) {
+func (ser *JSONSerializer) encodeV2(t *Task) (s string, err error) {
 	if t.Args == nil && t.Kwargs == nil {
 		return jsonV2noparams, nil
 	}

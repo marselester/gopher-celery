@@ -94,7 +94,7 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 		Name: path,
 		Args: args,
 	}
-	rawMsg, err := a.conf.registry.Encode(a.conf.format, a.conf.protocol, &m)
+	rawMsg, err := a.conf.registry.Encode(queue, a.conf.format, a.conf.protocol, &m)
 	if err != nil {
 		return fmt.Errorf("failed to encode task message: %w", err)
 	}

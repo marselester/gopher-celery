@@ -3,9 +3,14 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Task represents a task message that provides essential params to run a task.
@@ -46,11 +51,25 @@ type Serializer interface {
 func NewSerializerRegistry() *SerializerRegistry {
 	js := NewJSONSerializer()
 	r := SerializerRegistry{
+		pool: sync.Pool{New: func() interface{} {
+			return &bytes.Buffer{}
+		}},
 		serializers: map[string]Serializer{
 			"json":             js,
 			"application/json": js,
 		},
+		uuid4: uuid.NewString,
 	}
+
+	var (
+		host string
+		err  error
+	)
+	if host, err = os.Hostname(); err != nil {
+		host = "unknown"
+	}
+	r.origin = fmt.Sprintf("%d@%s", os.Getpid(), host)
+
 	return &r
 }
 
@@ -62,7 +81,12 @@ func NewSerializerRegistry() *SerializerRegistry {
 // Therefore a client doesn't have to specify the formats since the registry can
 // pick an appropriate decoder based on the aforementioned params.
 type SerializerRegistry struct {
+	pool        sync.Pool
 	serializers map[string]Serializer
+	// uuid4 returns uuid v4, e.g., 0ad73c66-f4c9-4600-bd20-96746e720eed.
+	uuid4 func() string
+	// origin is a pid@host used in encoding task messages.
+	origin string
 }
 
 // Register registers the serializer,
@@ -71,17 +95,17 @@ func (r *SerializerRegistry) Register(name string, serializer Serializer) {
 	r.serializers[name] = serializer
 }
 
-type message struct {
-	Body        string          `json:"body"`
-	ContentType string          `json:"content-type"`
-	Header      messageV2Header `json:"headers"`
+type inboundMessage struct {
+	Body        string                 `json:"body"`
+	ContentType string                 `json:"content-type"`
+	Header      inboundMessageV2Header `json:"headers"`
 }
-type messageV2Header struct {
+type inboundMessageV2Header struct {
 	ID      string    `json:"id"`
 	Task    string    `json:"task"`
 	Expires time.Time `json:"expires"`
 }
-type messageV1Body struct {
+type inboundMessageV1Body struct {
 	ID      string                 `json:"id"`
 	Task    string                 `json:"task"`
 	Args    []interface{}          `json:"args"`
@@ -93,7 +117,7 @@ type messageV1Body struct {
 // If the header doesn't contain a task name, then protocol v1 is assumed.
 // Otherwise the protocol v2 is used.
 func (r *SerializerRegistry) Decode(raw []byte) (*Task, error) {
-	var m message
+	var m inboundMessage
 	err := json.Unmarshal(raw, &m)
 	if err != nil {
 		return nil, fmt.Errorf("json decode: %w", err)
@@ -103,6 +127,7 @@ func (r *SerializerRegistry) Decode(raw []byte) (*Task, error) {
 		prot int
 		t    Task
 	)
+	// Protocol version is detected by the presence of a task message header.
 	if m.Header.Task == "" {
 		prot = 1
 	} else {
@@ -127,10 +152,149 @@ func (r *SerializerRegistry) Decode(raw []byte) (*Task, error) {
 }
 
 // Encode encodes the task message.
-func (r *SerializerRegistry) Encode(format string, prot int, t *Task) ([]byte, error) {
+func (r *SerializerRegistry) Encode(queue, format string, prot int, t *Task) ([]byte, error) {
+	if prot != 1 && prot != 2 {
+		return nil, fmt.Errorf("unknown protocol version %d", prot)
+	}
+
 	ser := r.serializers[format]
 	if ser == nil {
-		return nil, fmt.Errorf("unregistered serializer")
+		return nil, fmt.Errorf("unregistered serializer %s", format)
 	}
-	return nil, nil
+
+	body, err := ser.Encode(prot, t)
+	if err != nil {
+		return nil, fmt.Errorf("%s encode %d: %w", format, prot, err)
+	}
+
+	if prot == 1 {
+		return r.encodeV1(body, queue, format, t)
+	} else {
+		return r.encodeV2(body, queue, format, t)
+	}
+}
+
+// jsonEmptyMap helps to reduce allocs when encoding empty maps in json.
+var jsonEmptyMap = json.RawMessage("{}")
+
+type outboundMessageV1 struct {
+	Body            string                  `json:"body"`
+	ContentEncoding string                  `json:"content-encoding"`
+	ContentType     string                  `json:"content-type"`
+	Header          json.RawMessage         `json:"headers"`
+	Property        outboundMessageProperty `json:"properties"`
+}
+
+type outboundMessageProperty struct {
+	DeliveryInfo  outboundMessageDeliveryInfo `json:"delivery_info"`
+	CorrelationID string                      `json:"correlation_id"`
+	ReplyTo       string                      `json:"reply_to"`
+	BodyEncoding  string                      `json:"body_encoding"`
+	DeliveryTag   string                      `json:"delivery_tag"`
+	DeliveryMode  int                         `json:"delivery_mode"`
+	// Priority is a number between 0 and 255, where 255 is the highest priority in RabbitMQ
+	// and 0 is the highest in Redis.
+	Priority int `json:"priority"`
+}
+type outboundMessageDeliveryInfo struct {
+	Exchange   string `json:"exchange"`
+	RoutingKey string `json:"routing_key"`
+}
+
+func (r *SerializerRegistry) encodeV1(body, queue, format string, t *Task) ([]byte, error) {
+	buf := r.pool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		r.pool.Put(buf)
+	}()
+
+	m := outboundMessageV1{
+		Body:            body,
+		ContentEncoding: "utf-8",
+		ContentType:     format,
+		Header:          jsonEmptyMap,
+		Property: outboundMessageProperty{
+			BodyEncoding:  "base64",
+			CorrelationID: t.ID,
+			ReplyTo:       r.uuid4(),
+			DeliveryInfo: outboundMessageDeliveryInfo{
+				Exchange:   queue,
+				RoutingKey: queue,
+			},
+			DeliveryMode: 2,
+			DeliveryTag:  r.uuid4(),
+		},
+	}
+
+	if err := json.NewEncoder(buf).Encode(&m); err != nil {
+		return nil, fmt.Errorf("json encode: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+type outboundMessageV2 struct {
+	Body            string                  `json:"body"`
+	ContentEncoding string                  `json:"content-encoding"`
+	ContentType     string                  `json:"content-type"`
+	Header          outboundMessageV2Header `json:"headers"`
+	Property        outboundMessageProperty `json:"properties"`
+}
+type outboundMessageV2Header struct {
+	// Lang enables support for multiple languages.
+	// Worker may redirect the message to a worker that supports the language.
+	Lang string `json:"lang"`
+	ID   string `json:"id"`
+	// RootID helps to keep track of workflows.
+	RootID string `json:"root_id"`
+	Task   string `json:"task"`
+	// Origin is the name of the node sending the task,
+	// '@'.join([os.getpid(), socket.gethostname()]).
+	Origin  string  `json:"origin"`
+	Expires *string `json:"expires"`
+	// Retries is a current number of times this task has been retried.
+	// It's always set to zero.
+	Retries int `json:"retries"`
+}
+
+func (r *SerializerRegistry) encodeV2(body, queue, format string, t *Task) ([]byte, error) {
+	buf := r.pool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		r.pool.Put(buf)
+	}()
+
+	m := outboundMessageV2{
+		Body:            body,
+		ContentEncoding: "utf-8",
+		ContentType:     format,
+		Header: outboundMessageV2Header{
+			Lang:   "go",
+			ID:     t.ID,
+			RootID: t.ID,
+			Task:   t.Name,
+			Origin: r.origin,
+		},
+		Property: outboundMessageProperty{
+			BodyEncoding:  "base64",
+			CorrelationID: t.ID,
+			ReplyTo:       r.uuid4(),
+			DeliveryInfo: outboundMessageDeliveryInfo{
+				Exchange:   queue,
+				RoutingKey: queue,
+			},
+			DeliveryMode: 2,
+			DeliveryTag:  r.uuid4(),
+		},
+	}
+	if !t.Expires.IsZero() {
+		s := t.Expires.Format(time.RFC3339)
+		m.Header.Expires = &s
+	}
+
+	if err := json.NewEncoder(buf).Encode(&m); err != nil {
+		return nil, fmt.Errorf("json encode: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }
