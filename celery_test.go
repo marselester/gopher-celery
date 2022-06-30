@@ -2,9 +2,12 @@ package celery
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-kit/log"
 
 	"github.com/marselester/gopher-celery/internal/protocol"
 )
@@ -36,7 +39,7 @@ func TestExecuteTaskPanic(t *testing.T) {
 }
 
 func TestProduceAndConsume(t *testing.T) {
-	app := NewApp()
+	app := NewApp(WithLogger(log.NewJSONLogger(os.Stderr)))
 	err := app.Delay(
 		"myproject.apps.myapp.tasks.mytask",
 		"important",

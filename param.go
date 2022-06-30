@@ -1,5 +1,7 @@
 package celery
 
+import "reflect"
+
 // NewTaskParam returns a task param which facilitates access to args and kwargs.
 func NewTaskParam(args []interface{}, kwargs map[string]interface{}) *TaskParam {
 	return &TaskParam{
@@ -80,7 +82,13 @@ func (p *TaskParam) MustInt(name string) int {
 	if !ok {
 		panic("param not found")
 	}
-	return v.(int)
+
+	switch reflect.TypeOf(v).Kind() {
+	case reflect.Float64:
+		return int(v.(float64))
+	default:
+		return v.(int)
+	}
 }
 
 // MustFloat looks up a parameter by name and casts it to float.

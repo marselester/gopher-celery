@@ -92,3 +92,51 @@ func TestTaskParamGet(t *testing.T) {
 		})
 	}
 }
+
+func TestTaskParamMustInt(t *testing.T) {
+	tests := map[string]struct {
+		p        *TaskParam
+		argNames []string
+		pname    string
+		want     int
+		panics   bool
+	}{
+		"float64": {
+			p:        NewTaskParam([]interface{}{2.0}, nil),
+			argNames: []string{"a"},
+			pname:    "a",
+			want:     2,
+		},
+		"int": {
+			p:        NewTaskParam([]interface{}{2}, nil),
+			argNames: []string{"a"},
+			pname:    "a",
+			want:     2,
+		},
+		"string": {
+			p:        NewTaskParam([]interface{}{"2"}, nil),
+			argNames: []string{"a"},
+			pname:    "a",
+			panics:   true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tc.p.NameArgs(tc.argNames...)
+
+			defer func() {
+				if r := recover(); r != nil {
+					if !tc.panics {
+						t.Error(r)
+					}
+				}
+			}()
+
+			got := tc.p.MustInt(tc.pname)
+			if tc.want != got {
+				t.Errorf("expected %d got %d", tc.want, got)
+			}
+		})
+	}
+}
