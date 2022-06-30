@@ -91,7 +91,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/gomodule/redigo/redis"
 	celery "github.com/marselester/gopher-celery"
-	redisbroker "github.com/marselester/gopher-celery/broker/redis"
+	celeryredis "github.com/marselester/gopher-celery/redis"
 )
 
 func main() {
@@ -125,8 +125,8 @@ func main() {
 	}
 	c.Close()
 
-	broker := redisbroker.NewBroker(
-		redisbroker.WithPool(&pool),
+	broker := celeryredis.NewBroker(
+		celeryredis.WithPool(&pool),
 	)
 	app := celery.NewApp(
 		celery.WithBroker(broker),
