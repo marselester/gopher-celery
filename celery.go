@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/marselester/gopher-celery/internal/protocol"
+	"github.com/marselester/gopher-celery/protocol"
 	"github.com/marselester/gopher-celery/redis"
 )
 

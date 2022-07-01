@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-kit/log"
 
-	"github.com/marselester/gopher-celery/internal/protocol"
+	"github.com/marselester/gopher-celery/protocol"
 )
 
 func TestExecuteTaskPanic(t *testing.T) {

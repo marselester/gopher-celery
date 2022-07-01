@@ -3,7 +3,7 @@ package celery
 import (
 	"github.com/go-kit/log"
 
-	"github.com/marselester/gopher-celery/internal/protocol"
+	"github.com/marselester/gopher-celery/protocol"
 )
 
 // The task message serializers.
