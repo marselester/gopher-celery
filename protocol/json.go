@@ -26,6 +26,15 @@ type JSONSerializer struct {
 	now  func() time.Time
 }
 
+// jsonInboundV1Body helps to decode a message body v1.
+type jsonInboundV1Body struct {
+	ID      string                 `json:"id"`
+	Task    string                 `json:"task"`
+	Args    []interface{}          `json:"args"`
+	Kwargs  map[string]interface{} `json:"kwargs"`
+	Expires time.Time              `json:"expires"`
+}
+
 // Decode parses the JSON-encoded message body s
 // depending on Celery protocol version (v1 or v2).
 // The task t is updated with the decoded params.
@@ -36,8 +45,8 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 	}
 
 	switch p {
-	case 1:
-		var body inboundMessageV1Body
+	case V1:
+		var body jsonInboundV1Body
 		if err := json.Unmarshal(b, &body); err != nil {
 			return fmt.Errorf("json decode: %w", err)
 		}
@@ -47,7 +56,7 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 		t.Args = body.Args
 		t.Kwargs = body.Kwargs
 		t.Expires = body.Expires
-	case 2:
+	case V2:
 		var a [3]interface{}
 		if err := json.Unmarshal(b, &a); err != nil {
 			return fmt.Errorf("json decode: %w", err)
@@ -72,14 +81,14 @@ func (ser *JSONSerializer) Decode(p int, s string, t *Task) error {
 
 // Encode encodes task t using protocol version p and returns the message body s.
 func (ser *JSONSerializer) Encode(p int, t *Task) (s string, err error) {
-	if p == 1 {
+	if p == V1 {
 		return ser.encodeV1(t)
 	}
 	return ser.encodeV2(t)
 }
 
-// jsontask is an auxiliary task struct to encode the message in json.
-type jsontask struct {
+// jsonOutboundV1Body is an auxiliary task struct to encode the message body v1 in json.
+type jsonOutboundV1Body struct {
 	ID      string          `json:"id"`
 	Task    string          `json:"task"`
 	Args    []interface{}   `json:"args"`
@@ -96,7 +105,7 @@ type jsontask struct {
 }
 
 func (ser *JSONSerializer) encodeV1(t *Task) (s string, err error) {
-	v := jsontask{
+	v := jsonOutboundV1Body{
 		ID:     t.ID,
 		Task:   t.Name,
 		Args:   t.Args,

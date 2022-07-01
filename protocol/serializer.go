@@ -37,6 +37,17 @@ func (t *Task) IsExpired() bool {
 	return !t.Expires.IsZero() && t.Expires.Before(time.Now())
 }
 
+// The mime-type describing the serializers.
+const (
+	MimeJSON = "application/json"
+)
+
+// Supported protocol versions.
+const (
+	V1 = 1
+	V2 = 2
+)
+
 // Serializer encodes/decodes Celery tasks (message's body param to be precise).
 // See https://docs.celeryq.dev/projects/kombu/en/latest/userguide/serialization.html.
 type Serializer interface {
@@ -54,12 +65,12 @@ func NewSerializerRegistry() *SerializerRegistry {
 		pool: sync.Pool{New: func() interface{} {
 			return &bytes.Buffer{}
 		}},
-		serializers: map[string]Serializer{
-			"json":             js,
-			"application/json": js,
-		},
-		uuid4: uuid.NewString,
+		serializers: make(map[string]Serializer),
+		encoding:    make(map[string]string),
+		uuid4:       uuid.NewString,
 	}
+	r.Register(js, "json", "utf-8")
+	r.Register(js, "application/json", "utf-8")
 
 	var (
 		host string
@@ -81,18 +92,24 @@ func NewSerializerRegistry() *SerializerRegistry {
 // Therefore a client doesn't have to specify the formats since the registry can
 // pick an appropriate decoder based on the aforementioned params.
 type SerializerRegistry struct {
-	pool        sync.Pool
+	pool sync.Pool
+	// serializers helps to look up a serializer by a content-type,
+	// see also https://github.com/celery/kombu/blob/master/kombu/serialization.py#L388.
 	serializers map[string]Serializer
+	// encoding maps content-type to its encoding, e.g., application/json uses utf-8 encoding.
+	encoding map[string]string
 	// uuid4 returns uuid v4, e.g., 0ad73c66-f4c9-4600-bd20-96746e720eed.
 	uuid4 func() string
 	// origin is a pid@host used in encoding task messages.
 	origin string
 }
 
-// Register registers the serializer,
-// see https://github.com/celery/kombu/blob/master/kombu/serialization.py#L291.
-func (r *SerializerRegistry) Register(name string, serializer Serializer) {
-	r.serializers[name] = serializer
+// Register registers a custom serializer where
+// mime is the mime-type describing the serialized structure, e.g., application/json,
+// and encoding is the content encoding which is usually utf-8 or binary.
+func (r *SerializerRegistry) Register(serializer Serializer, mime, encoding string) {
+	r.serializers[mime] = serializer
+	r.encoding[mime] = encoding
 }
 
 type inboundMessage struct {
@@ -104,13 +121,6 @@ type inboundMessageV2Header struct {
 	ID      string    `json:"id"`
 	Task    string    `json:"task"`
 	Expires time.Time `json:"expires"`
-}
-type inboundMessageV1Body struct {
-	ID      string                 `json:"id"`
-	Task    string                 `json:"task"`
-	Args    []interface{}          `json:"args"`
-	Kwargs  map[string]interface{} `json:"kwargs"`
-	Expires time.Time              `json:"expires"`
 }
 
 // Decode decodes the raw message and returns a task info.
@@ -129,9 +139,9 @@ func (r *SerializerRegistry) Decode(raw []byte) (*Task, error) {
 	)
 	// Protocol version is detected by the presence of a task message header.
 	if m.Header.Task == "" {
-		prot = 1
+		prot = V1
 	} else {
-		prot = 2
+		prot = V2
 		t.ID = m.Header.ID
 		t.Name = m.Header.Task
 		t.Expires = m.Header.Expires
@@ -152,25 +162,28 @@ func (r *SerializerRegistry) Decode(raw []byte) (*Task, error) {
 }
 
 // Encode encodes the task message.
-func (r *SerializerRegistry) Encode(queue, format string, prot int, t *Task) ([]byte, error) {
-	if prot != 1 && prot != 2 {
+func (r *SerializerRegistry) Encode(queue, mime string, prot int, t *Task) ([]byte, error) {
+	if prot != V1 && prot != V2 {
 		return nil, fmt.Errorf("unknown protocol version %d", prot)
 	}
 
-	ser := r.serializers[format]
+	ser := r.serializers[mime]
 	if ser == nil {
-		return nil, fmt.Errorf("unregistered serializer %s", format)
+		return nil, fmt.Errorf("unregistered serializer %s", mime)
+	}
+	if r.encoding[mime] == "" {
+		return nil, fmt.Errorf("unregistered serializer encoding %s", mime)
 	}
 
 	body, err := ser.Encode(prot, t)
 	if err != nil {
-		return nil, fmt.Errorf("%s encode %d: %w", format, prot, err)
+		return nil, fmt.Errorf("%s encode %d: %w", mime, prot, err)
 	}
 
-	if prot == 1 {
-		return r.encodeV1(body, queue, format, t)
+	if prot == V1 {
+		return r.encodeV1(body, queue, mime, t)
 	} else {
-		return r.encodeV2(body, queue, format, t)
+		return r.encodeV2(body, queue, mime, t)
 	}
 }
 
@@ -201,7 +214,7 @@ type outboundMessageDeliveryInfo struct {
 	RoutingKey string `json:"routing_key"`
 }
 
-func (r *SerializerRegistry) encodeV1(body, queue, format string, t *Task) ([]byte, error) {
+func (r *SerializerRegistry) encodeV1(body, queue, mime string, t *Task) ([]byte, error) {
 	buf := r.pool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
@@ -210,8 +223,8 @@ func (r *SerializerRegistry) encodeV1(body, queue, format string, t *Task) ([]by
 
 	m := outboundMessageV1{
 		Body:            body,
-		ContentEncoding: "utf-8",
-		ContentType:     format,
+		ContentEncoding: r.encoding[mime],
+		ContentType:     mime,
 		Header:          jsonEmptyMap,
 		Property: outboundMessageProperty{
 			BodyEncoding:  "base64",
@@ -257,7 +270,7 @@ type outboundMessageV2Header struct {
 	Retries int `json:"retries"`
 }
 
-func (r *SerializerRegistry) encodeV2(body, queue, format string, t *Task) ([]byte, error) {
+func (r *SerializerRegistry) encodeV2(body, queue, mime string, t *Task) ([]byte, error) {
 	buf := r.pool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
@@ -266,8 +279,8 @@ func (r *SerializerRegistry) encodeV2(body, queue, format string, t *Task) ([]by
 
 	m := outboundMessageV2{
 		Body:            body,
-		ContentEncoding: "utf-8",
-		ContentType:     format,
+		ContentEncoding: r.encoding[mime],
+		ContentType:     mime,
 		Header: outboundMessageV2Header{
 			Lang:   "go",
 			ID:     t.ID,

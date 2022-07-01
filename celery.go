@@ -41,8 +41,8 @@ func NewApp(options ...Option) *App {
 		conf: Config{
 			logger:     log.NewNopLogger(),
 			registry:   protocol.NewSerializerRegistry(),
-			format:     SerializerJSON,
-			protocol:   ProtocolV2,
+			mime:       protocol.MimeJSON,
+			protocol:   protocol.V2,
 			maxWorkers: DefaultMaxWorkers,
 		},
 		task:      make(map[string]TaskF),
@@ -94,7 +94,7 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 		Name: path,
 		Args: args,
 	}
-	rawMsg, err := a.conf.registry.Encode(queue, a.conf.format, a.conf.protocol, &m)
+	rawMsg, err := a.conf.registry.Encode(queue, a.conf.mime, a.conf.protocol, &m)
 	if err != nil {
 		return fmt.Errorf("failed to encode task message: %w", err)
 	}

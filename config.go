@@ -6,17 +6,6 @@ import (
 	"github.com/marselester/gopher-celery/protocol"
 )
 
-// The task message serializers.
-const (
-	SerializerJSON = "json"
-)
-
-// Supported protocol versions.
-const (
-	ProtocolV1 = 1
-	ProtocolV2 = 2
-)
-
 // DefaultMaxWorkers is the default upper limit of goroutines
 // allowed to process Celery tasks.
 // Note, the workers are launched only when there are tasks to process.
@@ -29,16 +18,25 @@ const DefaultMaxWorkers = 1000
 // Option sets up a Config.
 type Option func(*Config)
 
-// WithTaskSerializer sets a serializer format, e.g.,
+// WithCustomTaskSerializer registers a custom serializer where
+// mime is the mime-type describing the serialized structure, e.g., application/json,
+// and encoding is the content encoding which is usually utf-8 or binary.
+func WithCustomTaskSerializer(serializer protocol.Serializer, mime, encoding string) Option {
+	return func(c *Config) {
+		c.registry.Register(serializer, mime, encoding)
+	}
+}
+
+// WithTaskSerializer sets a serializer mime-type, e.g.,
 // the message's body is encoded in JSON when a task is sent to the broker.
 // It is equivalent to CELERY_TASK_SERIALIZER in Python.
-func WithTaskSerializer(format string) Option {
+func WithTaskSerializer(mime string) Option {
 	return func(c *Config) {
-		switch format {
-		case SerializerJSON:
-			c.format = format
+		switch mime {
+		case protocol.MimeJSON:
+			c.mime = mime
 		default:
-			c.format = SerializerJSON
+			c.mime = protocol.MimeJSON
 		}
 	}
 }
@@ -48,10 +46,10 @@ func WithTaskSerializer(format string) Option {
 func WithTaskProtocol(version int) Option {
 	return func(c *Config) {
 		switch version {
-		case 1, 2:
+		case protocol.V1, protocol.V2:
 			c.protocol = version
 		default:
-			c.protocol = 2
+			c.protocol = protocol.V2
 		}
 	}
 }
@@ -83,7 +81,7 @@ type Config struct {
 	logger     log.Logger
 	broker     Broker
 	registry   *protocol.SerializerRegistry
-	format     string
+	mime       string
 	protocol   int
 	maxWorkers int
 }
