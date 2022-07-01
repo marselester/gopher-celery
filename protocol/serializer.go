@@ -3,11 +3,9 @@
 package protocol
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,9 +60,6 @@ type Serializer interface {
 func NewSerializerRegistry() *SerializerRegistry {
 	js := NewJSONSerializer()
 	r := SerializerRegistry{
-		pool: sync.Pool{New: func() interface{} {
-			return &bytes.Buffer{}
-		}},
 		serializers: make(map[string]Serializer),
 		encoding:    make(map[string]string),
 		uuid4:       uuid.NewString,
@@ -92,7 +87,6 @@ func NewSerializerRegistry() *SerializerRegistry {
 // Therefore a client doesn't have to specify the formats since the registry can
 // pick an appropriate decoder based on the aforementioned params.
 type SerializerRegistry struct {
-	pool sync.Pool
 	// serializers helps to look up a serializer by a content-type,
 	// see also https://github.com/celery/kombu/blob/master/kombu/serialization.py#L388.
 	serializers map[string]Serializer
@@ -215,12 +209,6 @@ type outboundMessageDeliveryInfo struct {
 }
 
 func (r *SerializerRegistry) encodeV1(body, queue, mime string, t *Task) ([]byte, error) {
-	buf := r.pool.Get().(*bytes.Buffer)
-	defer func() {
-		buf.Reset()
-		r.pool.Put(buf)
-	}()
-
 	m := outboundMessageV1{
 		Body:            body,
 		ContentEncoding: r.encoding[mime],
@@ -239,11 +227,7 @@ func (r *SerializerRegistry) encodeV1(body, queue, mime string, t *Task) ([]byte
 		},
 	}
 
-	if err := json.NewEncoder(buf).Encode(&m); err != nil {
-		return nil, fmt.Errorf("json encode: %w", err)
-	}
-
-	return buf.Bytes(), nil
+	return json.Marshal(&m)
 }
 
 type outboundMessageV2 struct {
@@ -271,12 +255,6 @@ type outboundMessageV2Header struct {
 }
 
 func (r *SerializerRegistry) encodeV2(body, queue, mime string, t *Task) ([]byte, error) {
-	buf := r.pool.Get().(*bytes.Buffer)
-	defer func() {
-		buf.Reset()
-		r.pool.Put(buf)
-	}()
-
 	m := outboundMessageV2{
 		Body:            body,
 		ContentEncoding: r.encoding[mime],
@@ -305,9 +283,5 @@ func (r *SerializerRegistry) encodeV2(body, queue, mime string, t *Task) ([]byte
 		m.Header.Expires = &s
 	}
 
-	if err := json.NewEncoder(buf).Encode(&m); err != nil {
-		return nil, fmt.Errorf("json encode: %w", err)
-	}
-
-	return buf.Bytes(), nil
+	return json.Marshal(&m)
 }
