@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,6 +54,7 @@ func TestProduceAndConsume(t *testing.T) {
 	// The test finishes either when ctx times out or the task finishes.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	res := make(chan int, 1)
+
 	app.Register(
 		"myproject.apps.myapp.tasks.mytask",
 		"important",
@@ -78,5 +80,45 @@ func TestProduceAndConsume(t *testing.T) {
 	}
 	if want != got {
 		t.Errorf("expected sum %d got %d", want, got)
+	}
+}
+
+func TestProduceAndConsume_100times(t *testing.T) {
+	app := NewApp(WithLogger(log.NewJSONLogger(os.Stderr)))
+	for i := 0; i < 100; i++ {
+		err := app.Delay(
+			"myproject.apps.myapp.tasks.mytask",
+			"important",
+			2,
+			3,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The test finishes either when ctx times out or all the tasks finish.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	t.Cleanup(cancel)
+
+	var sum int32
+	app.Register(
+		"myproject.apps.myapp.tasks.mytask",
+		"important",
+		func(ctx context.Context, p *TaskParam) {
+			p.NameArgs("a", "b")
+			atomic.AddInt32(
+				&sum,
+				int32(p.MustInt("a")+p.MustInt("b")),
+			)
+		},
+	)
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+
+	var want int32 = 500
+	if want != sum {
+		t.Errorf("expected sum %d got %d", want, sum)
 	}
 }
