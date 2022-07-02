@@ -1,9 +1,7 @@
-# Gopher Celery
+# Gopher Celery 🥬
 
 [![Documentation](https://godoc.org/github.com/marselester/gopher-celery?status.svg)](https://pkg.go.dev/github.com/marselester/gopher-celery)
 [![Go Report Card](https://goreportcard.com/badge/github.com/marselester/gopher-celery)](https://goreportcard.com/report/github.com/marselester/gopher-celery)
-
-**⚠️ This is still a draft.**
 
 The objective of this project is to provide
 the very basic mechanism to efficiently produce and consume Celery tasks on Go side.
@@ -18,12 +16,8 @@ Typically one would want to use Gopher Celery when certain tasks on Python side
 take too long to complete or there is a big volume of tasks requiring lots of Python workers
 (expensive infrastructure).
 
-This project offers a little bit more convenient API of https://github.com/gocelery/gocelery including:
-
-- smaller API surface
-- multiple queues support
-- running workers on demand
-- support for protocol v1 and v2
+This project offers a little bit more convenient API of https://github.com/gocelery/gocelery
+including support for Celery protocol v2.
 
 ## Usage
 
@@ -33,7 +27,7 @@ In order to process a task you should register it using `Register` method.
 
 ```python
 def mytask(a, b):
-    println(a + b)
+    print(a + b)
 ```
 
 For example, whenever a task `mytask` is popped from `important` queue,
@@ -139,12 +133,38 @@ func main() {
 
 </details>
 
-## Testing
+Check out Go and Python [examples](examples).
 
-Run the tests.
+Sending tasks from Go and receiving them on Python side.
 
 ```sh
-$ go test ./...
+$ redis-server
+$ cd ./examples/
+$ go run ./producer/
+{"err":null,"msg":"task was sent using protocol v2"}
+{"err":null,"msg":"task was sent using protocol v1"}
+$ celery --app myproject worker --queues important --loglevel=debug --without-heartbeat --without-mingle
+...
+[... WARNING/ForkPoolWorker-1] received a=fizz b=bazz
+[... WARNING/ForkPoolWorker-8] received a=fizz b=bazz
+```
+
+Sending tasks from Python and receiving them on Go side.
+
+```sh
+$ python producer.py
+$ go run ./consumer/
+{"msg":"waiting for tasks..."}
+received a=fizz b=bazz
+received a=fizz b=bazz
+```
+
+## Testing
+
+Tests require a Redis server running locally.
+
+```sh
+$ go test -v ./...
 ```
 
 Benchmarks help to spot performance changes as the project evolves
