@@ -39,9 +39,14 @@ app := celery.NewApp()
 app.Register(
 	"myproject.apps.myapp.tasks.mytask",
 	"important",
-	func(ctx context.Context, p *celery.TaskParam) {
+	func(ctx context.Context, p *celery.TaskParam) error {
 		p.NameArgs("a", "b")
+		// Methods prefixed with Must panic if they can't find an argument name
+		// or can't cast it to the corresponding type.
+		// The panic doesn't affect other tasks execution; it's logged.
 		fmt.Println(p.MustInt("a") + p.MustInt("b"))
+		// Non-nil errors are logged.
+		return nil
 	},
 )
 if err := app.Run(context.Background()); err != nil {
@@ -62,7 +67,7 @@ err := app.Delay(
 	3,
 )
 if err != nil {
-	log.Printf("failed to send mytask")
+	log.Printf("failed to send mytask: %v", err)
 }
 ```
 
