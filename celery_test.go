@@ -72,9 +72,7 @@ func TestProduceAndConsume(t *testing.T) {
 		t.Error(err)
 	}
 
-	var (
-		want = 5
-	)
+	want := 5
 	if want != sum {
 		t.Errorf("expected sum %d got %d", want, sum)
 	}

@@ -4,7 +4,6 @@ package redis
 import (
 	"fmt"
 
-	"github.com/go-kit/log"
 	"github.com/gomodule/redigo/redis"
 )
 
@@ -15,13 +14,6 @@ const DefaultReceiveTimeout = 5
 
 // Option sets up a Broker.
 type Option func(*Broker)
-
-// WithLogger sets a structured logger.
-func WithLogger(logger log.Logger) Option {
-	return func(c *Broker) {
-		c.logger = logger
-	}
-}
 
 // WithPool sets Redis connection pool.
 func WithPool(pool *redis.Pool) Option {
@@ -52,7 +44,6 @@ func NewBroker(options ...Option) *Broker {
 
 // Broker is a Redis broker that sends/receives messages from specified queues.
 type Broker struct {
-	logger         log.Logger
 	pool           *redis.Pool
 	queues         []string
 	receiveTimeout int

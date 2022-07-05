@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 
 	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
@@ -117,6 +118,7 @@ func (a *App) Run(ctx context.Context) error {
 		qq = append(qq, a.taskQueue[k])
 	}
 	a.conf.broker.Observe(qq)
+	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
 
 	msgs := make(chan *protocol.Task, 1)
 	g.Go(func() error {
@@ -132,7 +134,7 @@ func (a *App) Run(ctx context.Context) error {
 			default:
 				rawMsg, err := a.conf.broker.Receive()
 				if err != nil {
-					a.conf.logger.Log("msg", "failed to receive a raw task message", "err", err)
+					level.Error(a.conf.logger).Log("msg", "failed to receive a raw task message", "err", err)
 					continue
 				}
 				// No messages in the broker so far.
@@ -142,7 +144,7 @@ func (a *App) Run(ctx context.Context) error {
 
 				m, err := a.conf.registry.Decode(rawMsg)
 				if err != nil {
-					a.conf.logger.Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
+					level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
 					continue
 				}
 
@@ -154,12 +156,14 @@ func (a *App) Run(ctx context.Context) error {
 	go func() {
 		// Start a worker when there is a task.
 		for m := range msgs {
+			level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
+
 			if a.task[m.Name] == nil {
-				a.conf.logger.Log("msg", "unregistered task", "taskmsg", m)
+				level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
 				continue
 			}
 			if m.IsExpired() {
-				a.conf.logger.Log("msg", "task message expired", "taskmsg", m)
+				level.Debug(a.conf.logger).Log("msg", "task message expired", "name", m.Name)
 				continue
 			}
 
@@ -177,7 +181,9 @@ func (a *App) Run(ctx context.Context) error {
 				defer func() { <-a.sem }()
 
 				if err := a.executeTask(ctx, m); err != nil {
-					a.conf.logger.Log("msg", "task failed", "taskmsg", m, "err", err)
+					level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
+				} else {
+					level.Debug(a.conf.logger).Log("msg", "task succeeded", "name", m.Name)
 				}
 				return nil
 			})
