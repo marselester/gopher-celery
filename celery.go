@@ -138,8 +138,7 @@ func (a *App) Run(ctx context.Context) error {
 			default:
 				rawMsg, err := a.conf.broker.Receive()
 				if err != nil {
-					level.Error(a.conf.logger).Log("msg", "failed to receive a raw task message", "err", err)
-					continue
+					return fmt.Errorf("failed to receive a raw task message: %w", err)
 				}
 				// No messages in the broker so far.
 				if rawMsg == nil {
