@@ -76,6 +76,19 @@ func WithMaxWorkers(n int) Option {
 	}
 }
 
+// WithMiddlewares sets a chain of task middlewares.
+// The first middleware is treated as the outermost middleware.
+func WithMiddlewares(chain ...Middleware) Option {
+	return func(c *Config) {
+		c.chain = func(next TaskF) TaskF {
+			for i := len(chain) - 1; i >= 0; i-- {
+				next = chain[i](next)
+			}
+			return next
+		}
+	}
+}
+
 // Config represents Celery settings.
 type Config struct {
 	logger     log.Logger
@@ -84,4 +97,5 @@ type Config struct {
 	mime       string
 	protocol   int
 	maxWorkers int
+	chain      Middleware
 }

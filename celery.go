@@ -17,7 +17,11 @@ import (
 
 // TaskF represents a Celery task implemented by the client.
 // The error doesn't affect anything, it's logged though.
-type TaskF func(context.Context, *TaskParam) error
+type TaskF func(ctx context.Context, p *TaskParam) error
+
+// Middleware is a chainable behavior modifier for tasks.
+// For example, a caller can collect task metrics.
+type Middleware func(next TaskF) TaskF
 
 // Broker is responsible for receiving and sending task messages.
 // For example, it knows how to read a message from a given queue in Redis.
@@ -203,6 +207,11 @@ func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 	}()
 
 	task := a.task[m.Name]
+	// Use middlewares if a client provided them.
+	if a.conf.chain != nil {
+		task = a.conf.chain(task)
+	}
+
 	p := NewTaskParam(m.Args, m.Kwargs)
 	return task(ctx, p)
 }
