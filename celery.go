@@ -196,6 +196,13 @@ func (a *App) Run(ctx context.Context) error {
 	return g.Wait()
 }
 
+type contextKey int
+
+const (
+	// ContextKeyTaskName is a context key to access task names.
+	ContextKeyTaskName contextKey = iota
+)
+
 // executeTask calls the task function with args and kwargs from the message.
 // If the task panics, the stack trace is returned as an error.
 func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
@@ -211,6 +218,7 @@ func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 		task = a.conf.chain(task)
 	}
 
+	ctx = context.WithValue(ctx, ContextKeyTaskName, m.Name)
 	p := NewTaskParam(m.Args, m.Kwargs)
 	return task(ctx, p)
 }
