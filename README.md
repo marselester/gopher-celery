@@ -71,80 +71,19 @@ if err != nil {
 }
 ```
 
-Most likely Redis won't be running on localhost when the service is deployed,
-so you would need to pass a connection pool.
-
-<details>
-
-<summary>Example</summary>
-
-```go
-package main
-
-import (
-	"context"
-	"os"
-	"time"
-
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
-	"github.com/gomodule/redigo/redis"
-	celery "github.com/marselester/gopher-celery"
-	celeryredis "github.com/marselester/gopher-celery/redis"
-)
-
-func main() {
-	logger := log.NewJSONLogger(log.NewSyncWriter(os.Stderr))
-
-	pool := redis.Pool{
-		Dial: func() (redis.Conn, error) {
-			c, err := redis.DialURL(
-				"redis://my-redis",
-				redis.DialConnectTimeout(5*time.Second),
-			)
-			if err != nil {
-				level.Error(logger).Log("msg", "Redis dial failed", "err", err)
-			}
-			return c, err
-		},
-		// Check the health of an idle connection before using.
-		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			_, err := c.Do("PING")
-			return err
-		},
-		// Maximum number of idle connections in the pool.
-		MaxIdle: 3,
-		// Close connections after remaining idle for given duration.
-		IdleTimeout: 5 * time.Minute,
-	}
-	c := pool.Get()
-	if _, err := c.Do("PING"); err != nil {
-		level.Error(logger).Log("msg", "Redis connection failed", "err", err)
-		return
-	}
-	c.Close()
-
-	broker := celeryredis.NewBroker(
-		celeryredis.WithPool(&pool),
-	)
-	app := celery.NewApp(
-		celery.WithBroker(broker),
-		celery.WithLogger(logger),
-		celery.WithMaxWorkers(celery.DefaultMaxWorkers),
-	)
-	// Use the app...
-}
-```
-
-</details>
-
-Check out Go and Python [examples](examples).
-
-Sending tasks from Go and receiving them on Python side.
+More examples can be found in [the examples](examples) dir.
+Note, you'll need a Redis server to run them.
 
 ```sh
 $ redis-server
 $ cd ./examples/
+```
+
+<details>
+
+<summary>Sending tasks from Go and receiving them on Python side.</summary>
+
+```sh
 $ go run ./producer/
 {"err":null,"msg":"task was sent using protocol v2"}
 {"err":null,"msg":"task was sent using protocol v1"}
@@ -154,7 +93,11 @@ $ celery --app myproject worker --queues important --loglevel=debug --without-he
 [... WARNING/ForkPoolWorker-8] received a=fizz b=bazz
 ```
 
-Sending tasks from Python and receiving them on Go side.
+</details>
+
+<details>
+
+<summary>Sending tasks from Python and receiving them on Go side.</summary>
 
 ```sh
 $ python producer.py
@@ -163,6 +106,57 @@ $ go run ./consumer/
 received a=fizz b=bazz
 received a=fizz b=bazz
 ```
+
+</details>
+
+<details>
+
+Most likely your Redis server won't be running on localhost when the service is deployed,
+so you would need to pass a connection pool to the broker.
+
+<summary>Redis connection pool.</summary>
+
+```sh
+$ go run ./producer/
+{"err":null,"msg":"task was sent using protocol v2"}
+{"err":null,"msg":"task was sent using protocol v1"}
+$ go run ./redis/
+```
+
+</details>
+
+<details>
+
+<summary>Prometheus task metrics.</summary>
+
+```sh
+$ go run ./producer/
+$ go run ./metrics/
+$ curl http://0.0.0.0:8080/metrics
+# HELP task_duration_seconds How long it took in seconds to process a task.
+# TYPE task_duration_seconds histogram
+task_duration_seconds_bucket{task="myproject.mytask",le="0.016"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="0.032"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="0.064"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="0.128"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="0.256"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="0.512"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="1.024"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="2.048"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="4.096"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="8.192"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="16.384"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="32.768"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="60"} 2
+task_duration_seconds_bucket{task="myproject.mytask",le="+Inf"} 2
+task_duration_seconds_sum{task="myproject.mytask"} 7.2802e-05
+task_duration_seconds_count{task="myproject.mytask"} 2
+# HELP tasks_total How many Celery tasks processed, partitioned by task name and error.
+# TYPE tasks_total counter
+tasks_total{error="false",task="myproject.mytask"} 2
+```
+
+</details>
 
 ## Testing
 

@@ -8,7 +8,6 @@ import (
 	"os/signal"
 
 	"github.com/go-kit/log"
-
 	celery "github.com/marselester/gopher-celery"
 )
 
