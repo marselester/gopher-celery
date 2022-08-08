@@ -158,6 +158,23 @@ tasks_total{error="false",task="myproject.mytask"} 2
 
 </details>
 
+<details>
+
+Although there is no built-in support for task retries (publishing a task back to Redis),
+you can still retry the operation within the same goroutine.
+
+<summary>Task retries.</summary>
+
+```sh
+$ go run ./retry/
+...
+{"attempt":1,"err":"uh oh","msg":"request failed","ts":"2022-08-07T23:42:23.401191Z"}
+{"attempt":2,"err":"uh oh","msg":"request failed","ts":"2022-08-07T23:42:28.337204Z"}
+{"attempt":3,"err":"uh oh","msg":"request failed","ts":"2022-08-07T23:42:37.279873Z"}
+```
+
+</details>
+
 ## Testing
 
 Tests require a Redis server running locally.
