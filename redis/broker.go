@@ -3,6 +3,7 @@ package redis
 
 import (
 	"fmt"
+	"github.com/marselester/gopher-celery/internal/brokertools"
 
 	"github.com/gomodule/redigo/redis"
 )
@@ -12,11 +13,11 @@ import (
 // Larger the timeout, longer the client will have to wait for Celery app to exit.
 const DefaultReceiveTimeout = 5
 
-// Option sets up a Broker.
-type Option func(*Broker)
+// BrokerOption sets up a Broker.
+type BrokerOption func(*Broker)
 
-// WithPool sets Redis connection pool.
-func WithPool(pool *redis.Pool) Option {
+// WithBrokerPool sets Redis connection pool.
+func WithBrokerPool(pool *redis.Pool) BrokerOption {
 	return func(c *Broker) {
 		c.pool = pool
 	}
@@ -24,7 +25,7 @@ func WithPool(pool *redis.Pool) Option {
 
 // NewBroker creates a broker backed by Redis.
 // By default it connects to localhost.
-func NewBroker(options ...Option) *Broker {
+func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
 		receiveTimeout: DefaultReceiveTimeout,
 	}
@@ -96,42 +97,6 @@ func (br *Broker) Receive() ([]byte, error) {
 	// Put the Celery queue name to the end of the slice for fair processing.
 	q := string(res[0])
 	b := res[1]
-	move2back(br.queues, q)
+	brokertools.Move2back(br.queues, q)
 	return b, nil
-}
-
-// move2back moves item v to the end of the slice ss.
-// For example, given slice [a, b, c, d, e, f] and item c,
-// the result is [a, b, d, e, f, c].
-// The running time is linear in the worst case.
-func move2back(ss []string, v string) {
-	n := len(ss)
-	if n <= 1 {
-		return
-	}
-	// Nothing to do when an item is already at the end of the slice.
-	if ss[n-1] == v {
-		return
-	}
-
-	var found bool
-	i := 0
-	for ; i < n; i++ {
-		if ss[i] == v {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return
-	}
-
-	// Swap the found item with the last item in the slice,
-	// and then swap the neighbors starting from the found index i till the n-2:
-	// the last item is already in its place,
-	// and the one before it shouldn't be swapped with the last item.
-	ss[i], ss[n-1] = ss[n-1], ss[i]
-	for ; i < n-2; i++ {
-		ss[i], ss[i+1] = ss[i+1], ss[i]
-	}
 }
