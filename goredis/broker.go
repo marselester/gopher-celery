@@ -1,7 +1,9 @@
 package goredis
 
 import (
+	"context"
 	"github.com/go-redis/redis/v9"
+	"github.com/marselester/gopher-celery/internal/brokertools"
 	"time"
 )
 
@@ -10,11 +12,11 @@ import (
 // Larger the timeout, longer the client will have to wait for Celery app to exit.
 const DefaultReceiveTimeout = 5
 
-// Option sets up a Broker.
-type Option func(*Broker)
+// BrokerOption sets up a Broker.
+type BrokerOption func(*Broker)
 
-// WithPool sets Redis connection pool.
-func WithPool(pool *redis.Client) Option {
+// WithBrokerPool sets Redis connection pool.
+func WithBrokerPool(pool *redis.Client) BrokerOption {
 	return func(c *Broker) {
 		c.pool = pool
 	}
@@ -22,7 +24,7 @@ func WithPool(pool *redis.Client) Option {
 
 // NewBroker creates a broker backed by Redis.
 // By default it connects to localhost.
-func NewBroker(redisOptions *redis.Options, options ...Option) *Broker {
+func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
 		receiveTimeout: DefaultReceiveTimeout,
 	}
@@ -31,7 +33,8 @@ func NewBroker(redisOptions *redis.Options, options ...Option) *Broker {
 	}
 
 	if br.pool == nil {
-		br.pool = redis.NewClient(redisOptions)
+		// should we provide a way to pass/override redis.Options here?
+		br.pool = redis.NewClient(&redis.Options{})
 	}
 	return &br
 }
@@ -45,11 +48,13 @@ type Broker struct {
 
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
-func (br *Broker) Send(m []byte, q string) {
+func (br *Broker) Send(m []byte, q string) error {
 	conn := br.pool.Conn()
 	defer conn.Close()
+	ctx := context.Background()
 
-	_ = conn.LPush(nil, q, m)
+	conn.LPush(ctx, q, m)
+	return nil
 }
 
 // Observe sets the queues from which the tasks should be received.
@@ -72,47 +77,12 @@ func (br *Broker) Observe(queues []string) {
 func (br *Broker) Receive() ([]byte, error) {
 	conn := br.pool.Conn()
 	defer conn.Close()
+	ctx := context.Background()
 
-	res := conn.BRPop(nil, time.Duration(br.receiveTimeout), br.queues...)
+	res := conn.BRPop(ctx, time.Duration(br.receiveTimeout), br.queues...)
 	// Put the Celery queue name to the end of the slice for fair processing.
 	q := res.Val()[0]
 	b := res.Val()[1]
-	move2back(br.queues, q)
+	brokertools.Move2back(br.queues, q)
 	return []byte(b), nil
-}
-
-// move2back moves item v to the end of the slice ss.
-// For example, given slice [a, b, c, d, e, f] and item c,
-// the result is [a, b, d, e, f, c].
-// The running time is linear in the worst case.
-func move2back(ss []string, v string) {
-	n := len(ss)
-	if n <= 1 {
-		return
-	}
-	// Nothing to do when an item is already at the end of the slice.
-	if ss[n-1] == v {
-		return
-	}
-
-	var found bool
-	i := 0
-	for ; i < n; i++ {
-		if ss[i] == v {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return
-	}
-
-	// Swap the found item with the last item in the slice,
-	// and then swap the neighbors starting from the found index i till the n-2:
-	// the last item is already in its place,
-	// and the one before it shouldn't be swapped with the last item.
-	ss[i], ss[n-1] = ss[n-1], ss[i]
-	for ; i < n-2; i++ {
-		ss[i], ss[i+1] = ss[i+1], ss[i]
-	}
 }
