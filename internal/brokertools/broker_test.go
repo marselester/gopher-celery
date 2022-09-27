@@ -1,7 +1,6 @@
-package redis
+package brokertools
 
 import (
-	"github.com/marselester/gopher-celery/internal/brokertools"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -52,7 +51,7 @@ func TestMove2back(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			brokertools.Move2back(tc.input, tc.v)
+			Move2back(tc.input, tc.v)
 			if diff := cmp.Diff(tc.want, tc.input); diff != "" {
 				t.Error(diff)
 			}
@@ -63,6 +62,6 @@ func TestMove2back(t *testing.T) {
 func BenchmarkMove2back(b *testing.B) {
 	ss := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"}
 	for n := 0; n < b.N; n++ {
-		move2back(ss, "a")
+		Move2back(ss, "a")
 	}
 }
