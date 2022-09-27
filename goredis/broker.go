@@ -16,8 +16,8 @@ const DefaultReceiveTimeout = 5
 // BrokerOption sets up a Broker.
 type BrokerOption func(*Broker)
 
-// WithBrokerPool sets Redis connection pool.
-func WithBrokerPool(pool *redis.Client) BrokerOption {
+// WithBrokerClient sets Redis connection pool.
+func WithBrokerClient(pool *redis.Client) BrokerOption {
 	return func(c *Broker) {
 		c.pool = pool
 	}
