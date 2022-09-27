@@ -1,3 +1,4 @@
+// Package goredis implements a Celery broker using GoRedis.
 package goredis
 
 import (
@@ -23,10 +24,11 @@ func WithBrokerPool(pool *redis.Client) BrokerOption {
 }
 
 // NewBroker creates a broker backed by Redis.
-// By default it connects to localhost.
+// By default, it connects to localhost.
 func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
 		receiveTimeout: DefaultReceiveTimeout,
+		ctx:            context.Background(),
 	}
 	for _, opt := range options {
 		opt(&br)
@@ -43,7 +45,8 @@ func NewBroker(options ...BrokerOption) *Broker {
 type Broker struct {
 	pool           *redis.Client
 	queues         []string
-	receiveTimeout int
+	receiveTimeout time.Duration
+	ctx            context.Context
 }
 
 // Send inserts the specified message at the head of the queue using LPUSH command.
@@ -51,10 +54,9 @@ type Broker struct {
 func (br *Broker) Send(m []byte, q string) error {
 	conn := br.pool.Conn()
 	defer conn.Close()
-	ctx := context.Background()
 
-	conn.LPush(ctx, q, m)
-	return nil
+	res := conn.LPush(br.ctx, q, m)
+	return res.Err()
 }
 
 // Observe sets the queues from which the tasks should be received.
@@ -77,12 +79,11 @@ func (br *Broker) Observe(queues []string) {
 func (br *Broker) Receive() ([]byte, error) {
 	conn := br.pool.Conn()
 	defer conn.Close()
-	ctx := context.Background()
 
-	res := conn.BRPop(ctx, time.Duration(br.receiveTimeout), br.queues...)
+	res := conn.BRPop(br.ctx, br.receiveTimeout, br.queues...)
 	// Put the Celery queue name to the end of the slice for fair processing.
 	q := res.Val()[0]
 	b := res.Val()[1]
 	brokertools.Move2back(br.queues, q)
-	return []byte(b), nil
+	return []byte(b), res.Err()
 }
