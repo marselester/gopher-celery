@@ -1,11 +1,11 @@
-// Package redis implements a Celery broker using Redis.
-package redis
+// Package goredis implements a Celery broker using GoRedis.
+package goredis
 
 import (
-	"fmt"
+	"context"
+	"github.com/go-redis/redis/v9"
 	"github.com/marselester/gopher-celery/internal/brokertools"
-
-	"github.com/gomodule/redigo/redis"
+	"time"
 )
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
@@ -16,48 +16,47 @@ const DefaultReceiveTimeout = 5
 // BrokerOption sets up a Broker.
 type BrokerOption func(*Broker)
 
-// WithBrokerPool sets Redis connection pool.
-func WithBrokerPool(pool *redis.Pool) BrokerOption {
+// WithBrokerClient sets Redis connection pool.
+func WithBrokerClient(pool *redis.Client) BrokerOption {
 	return func(c *Broker) {
 		c.pool = pool
 	}
 }
 
 // NewBroker creates a broker backed by Redis.
-// By default it connects to localhost.
+// By default, it connects to localhost.
 func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
-		receiveTimeout: DefaultReceiveTimeout,
+		receiveTimeout: DefaultReceiveTimeout * time.Second,
+		ctx:            context.Background(),
 	}
 	for _, opt := range options {
 		opt(&br)
 	}
 
 	if br.pool == nil {
-		br.pool = &redis.Pool{
-			Dial: func() (redis.Conn, error) {
-				return redis.DialURL("redis://localhost")
-			},
-		}
+		// should we provide a way to pass/override redis.Options here?
+		br.pool = redis.NewClient(&redis.Options{})
 	}
 	return &br
 }
 
 // Broker is a Redis broker that sends/receives messages from specified queues.
 type Broker struct {
-	pool           *redis.Pool
+	pool           *redis.Client
 	queues         []string
-	receiveTimeout int
+	receiveTimeout time.Duration
+	ctx            context.Context
 }
 
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
-	conn := br.pool.Get()
+	conn := br.pool.Conn()
 	defer conn.Close()
 
-	_, err := conn.Do("LPUSH", q, m)
-	return err
+	res := conn.LPush(br.ctx, q, m)
+	return res.Err()
 }
 
 // Observe sets the queues from which the tasks should be received.
@@ -78,25 +77,13 @@ func (br *Broker) Observe(queues []string) {
 //
 // Note, the method is not concurrency safe.
 func (br *Broker) Receive() ([]byte, error) {
-	conn := br.pool.Get()
+	conn := br.pool.Conn()
 	defer conn.Close()
 
-	// See the discussion regarding timeout and Context cancellation
-	// https://github.com/gomodule/redigo/issues/207#issuecomment-283815775.
-	res, err := redis.ByteSlices(conn.Do(
-		"BRPOP",
-		redis.Args{}.AddFlat(br.queues).Add(br.receiveTimeout)...,
-	))
-	if err == redis.ErrNil {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to BRPOP %v: %w", br.queues, err)
-	}
-
+	res := conn.BRPop(br.ctx, br.receiveTimeout, br.queues...)
 	// Put the Celery queue name to the end of the slice for fair processing.
-	q := string(res[0])
-	b := res[1]
+	q := res.Val()[0]
+	b := res.Val()[1]
 	brokertools.Move2back(br.queues, q)
-	return b, nil
+	return []byte(b), res.Err()
 }
