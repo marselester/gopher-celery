@@ -1,11 +1,13 @@
-// Package redis implements a Celery broker using Redis.
+// Package redis implements a Celery broker using Redis
+// and github.com/gomodule/redigo.
 package redis
 
 import (
 	"fmt"
-	"github.com/marselester/gopher-celery/internal/brokertools"
 
 	"github.com/gomodule/redigo/redis"
+
+	"github.com/marselester/gopher-celery/internal/broker"
 )
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
@@ -97,6 +99,6 @@ func (br *Broker) Receive() ([]byte, error) {
 	// Put the Celery queue name to the end of the slice for fair processing.
 	q := string(res[0])
 	b := res[1]
-	brokertools.Move2back(br.queues, q)
+	broker.Move2back(br.queues, q)
 	return b, nil
 }

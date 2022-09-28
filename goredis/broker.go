@@ -1,11 +1,15 @@
-// Package goredis implements a Celery broker using GoRedis.
+// Package goredis implements a Celery broker using Redis
+// and github.com/go-redis/redis.
 package goredis
 
 import (
 	"context"
-	"github.com/go-redis/redis/v9"
-	"github.com/marselester/gopher-celery/internal/brokertools"
+	"fmt"
 	"time"
+
+	"github.com/go-redis/redis/v9"
+
+	"github.com/marselester/gopher-celery/internal/broker"
 )
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
@@ -35,7 +39,6 @@ func NewBroker(options ...BrokerOption) *Broker {
 	}
 
 	if br.pool == nil {
-		// should we provide a way to pass/override redis.Options here?
 		br.pool = redis.NewClient(&redis.Options{})
 	}
 	return &br
@@ -81,9 +84,17 @@ func (br *Broker) Receive() ([]byte, error) {
 	defer conn.Close()
 
 	res := conn.BRPop(br.ctx, br.receiveTimeout, br.queues...)
+	err := res.Err()
+	if err == redis.Nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to BRPOP %v: %w", br.queues, err)
+	}
+
 	// Put the Celery queue name to the end of the slice for fair processing.
 	q := res.Val()[0]
 	b := res.Val()[1]
-	brokertools.Move2back(br.queues, q)
-	return []byte(b), res.Err()
+	broker.Move2back(br.queues, q)
+	return []byte(b), nil
 }

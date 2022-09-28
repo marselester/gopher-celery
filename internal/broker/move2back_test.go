@@ -1,4 +1,4 @@
-package brokertools
+package broker
 
 import (
 	"testing"

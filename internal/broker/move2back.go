@@ -1,4 +1,4 @@
-package brokertools
+package broker
 
 // Move2back moves item v to the end of the slice ss.
 // For example, given slice [a, b, c, d, e, f] and item c,
