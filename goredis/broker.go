@@ -27,7 +27,7 @@ func WithBrokerClient(pool *redis.Client) BrokerOption {
 // By default, it connects to localhost.
 func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
-		receiveTimeout: DefaultReceiveTimeout,
+		receiveTimeout: DefaultReceiveTimeout * time.Second,
 		ctx:            context.Background(),
 	}
 	for _, opt := range options {
