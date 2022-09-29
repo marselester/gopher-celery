@@ -180,7 +180,7 @@ $ go run ./retry/
 Tests require a Redis server running locally.
 
 ```sh
-$ go test -v ./...
+$ go test -v -count=1 ./...
 ```
 
 Benchmarks help to spot performance changes as the project evolves

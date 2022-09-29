@@ -4,6 +4,7 @@ package redis
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gomodule/redigo/redis"
 
@@ -12,16 +13,29 @@ import (
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
 // should block waiting for results from Redis.
-// Larger the timeout, longer the client will have to wait for Celery app to exit.
 const DefaultReceiveTimeout = 5
 
 // BrokerOption sets up a Broker.
 type BrokerOption func(*Broker)
 
+// WithReceiveTimeout sets a timeout of how long the broker's Receive command
+// should block waiting for results from Redis.
+// Larger the timeout, longer the client will have to wait for Celery app to exit.
+// Smaller the timeout, more BRPOP commands would have to be sent to Redis.
+func WithReceiveTimeout(timeout time.Duration) BrokerOption {
+	return func(br *Broker) {
+		sec := int(timeout.Seconds())
+		if sec <= 0 {
+			sec = 1
+		}
+		br.receiveTimeout = sec
+	}
+}
+
 // WithBrokerPool sets Redis connection pool.
 func WithBrokerPool(pool *redis.Pool) BrokerOption {
-	return func(c *Broker) {
-		c.pool = pool
+	return func(br *Broker) {
+		br.pool = pool
 	}
 }
 

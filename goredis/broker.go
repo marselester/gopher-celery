@@ -14,16 +14,25 @@ import (
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
 // should block waiting for results from Redis.
-// Larger the timeout, longer the client will have to wait for Celery app to exit.
 const DefaultReceiveTimeout = 5
 
 // BrokerOption sets up a Broker.
 type BrokerOption func(*Broker)
 
-// WithBrokerClient sets Redis connection pool.
-func WithBrokerClient(pool *redis.Client) BrokerOption {
-	return func(c *Broker) {
-		c.pool = pool
+// WithReceiveTimeout sets a timeout of how long the broker's Receive command
+// should block waiting for results from Redis.
+// Larger the timeout, longer the client will have to wait for Celery app to exit.
+// Smaller the timeout, more BRPOP commands would have to be sent to Redis.
+func WithReceiveTimeout(timeout time.Duration) BrokerOption {
+	return func(br *Broker) {
+		br.receiveTimeout = timeout
+	}
+}
+
+// WithBrokerClient sets Redis client representing a pool of connections.
+func WithBrokerClient(c *redis.Client) BrokerOption {
+	return func(br *Broker) {
+		br.pool = c
 	}
 }
 
@@ -55,10 +64,7 @@ type Broker struct {
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
-	conn := br.pool.Conn()
-	defer conn.Close()
-
-	res := conn.LPush(br.ctx, q, m)
+	res := br.pool.LPush(br.ctx, q, m)
 	return res.Err()
 }
 
@@ -80,10 +86,7 @@ func (br *Broker) Observe(queues []string) {
 //
 // Note, the method is not concurrency safe.
 func (br *Broker) Receive() ([]byte, error) {
-	conn := br.pool.Conn()
-	defer conn.Close()
-
-	res := conn.BRPop(br.ctx, br.receiveTimeout, br.queues...)
+	res := br.pool.BRPop(br.ctx, br.receiveTimeout, br.queues...)
 	err := res.Err()
 	if err == redis.Nil {
 		return nil, nil
