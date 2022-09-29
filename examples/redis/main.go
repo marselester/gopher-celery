@@ -47,7 +47,7 @@ func main() {
 	c.Close()
 
 	broker := celeryredis.NewBroker(
-		celeryredis.WithBrokerPool(&pool),
+		celeryredis.WithPool(&pool),
 	)
 	app := celery.NewApp(
 		celery.WithBroker(broker),

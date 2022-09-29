@@ -32,8 +32,8 @@ func WithReceiveTimeout(timeout time.Duration) BrokerOption {
 	}
 }
 
-// WithBrokerPool sets Redis connection pool.
-func WithBrokerPool(pool *redis.Pool) BrokerOption {
+// WithPool sets Redis connection pool.
+func WithPool(pool *redis.Pool) BrokerOption {
 	return func(br *Broker) {
 		br.pool = pool
 	}

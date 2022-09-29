@@ -29,8 +29,8 @@ func WithReceiveTimeout(timeout time.Duration) BrokerOption {
 	}
 }
 
-// WithBrokerClient sets Redis client representing a pool of connections.
-func WithBrokerClient(c *redis.Client) BrokerOption {
+// WithClient sets Redis client representing a pool of connections.
+func WithClient(c *redis.Client) BrokerOption {
 	return func(br *Broker) {
 		br.pool = c
 	}
