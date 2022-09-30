@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"time"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -37,6 +38,19 @@ type Broker interface {
 	// It blocks until there is a message available for consumption.
 	// Note, the method is not concurrency safe.
 	Receive() ([]byte, error)
+}
+
+// AsyncParam represents parameters for sending a task message.
+type AsyncParam struct {
+	// Args is a list of arguments.
+	// It will be an empty list if not provided.
+	Args []interface{}
+	// Kwargs is a dictionary of keyword arguments.
+	// It will be an empty dictionary if not provided.
+	Kwargs map[string]interface{}
+	// Expires is an expiration date.
+	// If not provided the message will never expire.
+	Expires time.Time
 }
 
 // NewApp creates a Celery app.
@@ -93,7 +107,28 @@ func (a *App) Register(path, queue string, task TaskF) {
 	a.taskQueue[path] = queue
 }
 
-// Delay places the task associated with given Python path into queue.
+// ApplyAsync sends a task message.
+func (a *App) ApplyAsync(path, queue string, p *AsyncParam) error {
+	m := protocol.Task{
+		ID:      uuid.NewString(),
+		Name:    path,
+		Args:    p.Args,
+		Kwargs:  p.Kwargs,
+		Expires: p.Expires,
+	}
+	rawMsg, err := a.conf.registry.Encode(queue, a.conf.mime, a.conf.protocol, &m)
+	if err != nil {
+		return fmt.Errorf("failed to encode task message: %w", err)
+	}
+
+	if err = a.conf.broker.Send(rawMsg, queue); err != nil {
+		return fmt.Errorf("failed to send task message to broker: %w", err)
+	}
+	return nil
+}
+
+// Delay is a shortcut to send a task message,
+// i.e., it places the task associated with given Python path into queue.
 func (a *App) Delay(path, queue string, args ...interface{}) error {
 	m := protocol.Task{
 		ID:   uuid.NewString(),
