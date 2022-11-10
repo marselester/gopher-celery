@@ -22,6 +22,10 @@ type BrokerOption func(*Broker)
 // should block waiting for results from Redis.
 // Larger the timeout, longer the client will have to wait for Celery app to exit.
 // Smaller the timeout, more BRPOP commands would have to be sent to Redis.
+//
+// Note, the read timeout you specified with redis.DialReadTimeout() method
+// should be bigger than the receive timeout.
+// Otherwise redigo would return i/o timeout error.
 func WithReceiveTimeout(timeout time.Duration) BrokerOption {
 	return func(br *Broker) {
 		sec := int(timeout.Seconds())

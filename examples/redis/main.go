@@ -23,14 +23,27 @@ func main() {
 			c, err := redis.DialURL(
 				"redis://localhost",
 				redis.DialConnectTimeout(5*time.Second),
+				// The Conn.Do method sets a write deadline,
+				// writes the command arguments to the network connection,
+				// sets the read deadline and reads the response from the network connection
+				// https://github.com/gomodule/redigo/issues/320.
+				//
+				// Note, the read timeout should be big enough for BRPOP to finish
+				// or else the broker returns i/o timeout error.
+				redis.DialWriteTimeout(5*time.Second),
+				redis.DialReadTimeout(10*time.Second),
 			)
 			if err != nil {
 				level.Error(logger).Log("msg", "Redis dial failed", "err", err)
 			}
 			return c, err
 		},
-		// Check the health of an idle connection before using.
+		// Check the health of an idle connection before using it.
+		// It PINGs connections that have been idle more than a minute.
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
 			_, err := c.Do("PING")
 			return err
 		},
