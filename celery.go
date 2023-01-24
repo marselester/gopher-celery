@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-kit/log"
@@ -29,14 +31,11 @@ type Middleware func(next TaskF) TaskF
 // The messages can be in defferent formats depending on Celery protocol version.
 type Broker interface {
 	// Send puts a message to a queue.
-	// Note, the method is safe to call concurrently.
 	Send(msg []byte, queue string) error
 	// Observe sets the queues from which the tasks should be received.
-	// Note, the method is not concurrency safe.
 	Observe(queues []string)
 	// Receive returns a raw message from one of the queues.
 	// It blocks until there is a message available for consumption.
-	// Note, the method is not concurrency safe.
 	Receive() ([]byte, error)
 }
 
@@ -65,8 +64,8 @@ func NewApp(options ...Option) *App {
 			protocol:   protocol.V2,
 			maxWorkers: DefaultMaxWorkers,
 		},
-		task:      make(map[string]TaskF),
-		taskQueue: make(map[string]string),
+		task:      &sync.Map{},
+		taskQueue: &sync.Map{},
 	}
 
 	for _, opt := range options {
@@ -88,23 +87,31 @@ type App struct {
 
 	// task maps a Celery task path to a task itself, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": TaskF.
-	task map[string]TaskF
+	task *sync.Map //map[string]TaskF
 	// taskQueue helps to determine which queue a task belongs to, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": "important".
-	taskQueue map[string]string
+	taskQueue *sync.Map //map[string]string
 	// sem is a semaphore that limits number of workers.
 	sem chan struct{}
+	// queueCount is a number of queues to observe.
+	queueCount atomic.Uint32
 }
 
 // Register associates the task with given Python path and queue.
+// Note that you cannot have same task name for different queues.
 // For example, when "myproject.apps.myapp.tasks.mytask"
 // is seen in "important" queue, the TaskF task is executed.
-//
-// Note, the method is not concurrency safe.
-// The tasks mustn't be registered after the app starts processing tasks.
 func (a *App) Register(path, queue string, task TaskF) {
-	a.task[path] = task
-	a.taskQueue[path] = queue
+	a.task.Store(path, task)
+	a.taskQueue.Store(path, queue)
+	a.observe()
+}
+
+// observe sets the queues from which the tasks should be received.
+func (a *App) Unregister(path string) {
+	a.task.Delete(path)
+	a.taskQueue.Delete(path)
+	a.observe()
 }
 
 // ApplyAsync sends a task message.
@@ -148,16 +155,10 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 
 // Run launches the workers that process the tasks received from the broker.
 // The call is blocking until ctx is cancelled.
-// The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
-	qq := make([]string, 0, len(a.taskQueue))
-	for k := range a.taskQueue {
-		qq = append(qq, a.taskQueue[k])
-	}
-	a.conf.broker.Observe(qq)
-	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
+	a.observe()
 
 	msgs := make(chan *protocol.Task, 1)
 	g.Go(func() error {
@@ -171,9 +172,14 @@ func (a *App) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
+				if a.queueCount.Load() == 0 {
+					time.Sleep(100 * time.Millisecond)
+					continue
+				}
 				rawMsg, err := a.conf.broker.Receive()
 				if err != nil {
-					return fmt.Errorf("failed to receive a raw task message: %w", err)
+					level.Error(a.conf.logger).Log("failed to receive a raw task message: %w", err)
+					continue
 				}
 				// No messages in the broker so far.
 				if rawMsg == nil {
@@ -196,7 +202,8 @@ func (a *App) Run(ctx context.Context) error {
 		for m := range msgs {
 			level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
 
-			if a.task[m.Name] == nil {
+			_, ok := a.task.Load(m.Name)
+			if !ok {
 				level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
 				continue
 			}
@@ -247,13 +254,37 @@ func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 		}
 	}()
 
-	task := a.task[m.Name]
+	task, ok := a.task.Load(m.Name)
+	if !ok {
+		return fmt.Errorf("unregistered task: %s", m.Name)
+	}
+	taskF, ok := task.(TaskF)
+	if !ok {
+		return fmt.Errorf("invalid task: %s", m.Name)
+	}
 	// Use middlewares if a client provided them.
 	if a.conf.chain != nil {
-		task = a.conf.chain(task)
+		taskF = a.conf.chain(taskF)
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyTaskName, m.Name)
 	p := NewTaskParam(m.Args, m.Kwargs)
-	return task(ctx, p)
+	return taskF(ctx, p)
+}
+
+// update broker with new queues
+func (a *App) observe() {
+	qq := make([]string, 0)
+	a.taskQueue.Range(func(k, val any) bool {
+		sval, ok := val.(string)
+		if !ok {
+			level.Error(a.conf.logger).Log("could not convert task name to string")
+			return true
+		}
+		qq = append(qq, sval)
+		return true
+	})
+	a.conf.broker.Observe(qq)
+	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
+	a.queueCount.Store(uint32(len(qq)))
 }

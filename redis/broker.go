@@ -4,6 +4,7 @@ package redis
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -48,6 +49,7 @@ func WithPool(pool *redis.Pool) BrokerOption {
 func NewBroker(options ...BrokerOption) *Broker {
 	br := Broker{
 		receiveTimeout: DefaultReceiveTimeout,
+		mu:             &sync.Mutex{},
 	}
 	for _, opt := range options {
 		opt(&br)
@@ -68,10 +70,10 @@ type Broker struct {
 	pool           *redis.Pool
 	queues         []string
 	receiveTimeout int
+	mu             *sync.Mutex
 }
 
 // Send inserts the specified message at the head of the queue using LPUSH command.
-// Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
 	conn := br.pool.Get()
 	defer conn.Close()
@@ -81,8 +83,10 @@ func (br *Broker) Send(m []byte, q string) error {
 }
 
 // Observe sets the queues from which the tasks should be received.
-// Note, the method is not concurrency safe.
 func (br *Broker) Observe(queues []string) {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+
 	br.queues = queues
 }
 
@@ -95,11 +99,12 @@ func (br *Broker) Observe(queues []string) {
 // An element is popped from the tail of the first list that is non-empty,
 // with the given keys being checked in the order that they are given,
 // see https://redis.io/commands/brpop/.
-//
-// Note, the method is not concurrency safe.
 func (br *Broker) Receive() ([]byte, error) {
 	conn := br.pool.Get()
 	defer conn.Close()
+
+	br.mu.Lock()
+	defer br.mu.Unlock()
 
 	// See the discussion regarding timeout and Context cancellation
 	// https://github.com/gomodule/redigo/issues/207#issuecomment-283815775.
