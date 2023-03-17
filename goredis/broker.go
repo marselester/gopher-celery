@@ -1,5 +1,5 @@
 // Package goredis implements a Celery broker using Redis
-// and github.com/go-redis/redis.
+// and https://github.com/redis/go-redis.
 package goredis
 
 import (
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/marselester/gopher-celery/internal/broker"
 )
