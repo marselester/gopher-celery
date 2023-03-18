@@ -52,6 +52,12 @@ func main() {
 		// Close connections after remaining idle for given duration.
 		IdleTimeout: 5 * time.Minute,
 	}
+	defer func() {
+		if err := pool.Close(); err != nil {
+			level.Error(logger).Log("msg", "failed to close Redis connection pool", "err", err)
+		}
+	}()
+
 	c := pool.Get()
 	if _, err := c.Do("PING"); err != nil {
 		level.Error(logger).Log("msg", "Redis connection failed", "err", err)
