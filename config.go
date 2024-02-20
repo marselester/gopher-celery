@@ -32,12 +32,7 @@ func WithCustomTaskSerializer(serializer protocol.Serializer, mime, encoding str
 // It is equivalent to CELERY_TASK_SERIALIZER in Python.
 func WithTaskSerializer(mime string) Option {
 	return func(c *Config) {
-		switch mime {
-		case protocol.MimeJSON:
-			c.mime = mime
-		default:
-			c.mime = protocol.MimeJSON
-		}
+		c.mime = mime
 	}
 }
 
