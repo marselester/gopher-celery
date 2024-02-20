@@ -1,14 +1,14 @@
-module github.com/marselester/gopher-celery/examples
+module github.com/dryarullin/gopher-celery/examples
 
 go 1.19
 
-replace github.com/marselester/gopher-celery => ../
+replace github.com/dryarullin/gopher-celery => ../
 
 require (
 	github.com/go-kit/log v0.2.1
 	github.com/gomodule/redigo v1.8.9
-	github.com/marselester/backoff v0.0.1
-	github.com/marselester/gopher-celery v0.0.0-00010101000000-000000000000
+	github.com/dryarullin/backoff v0.0.1
+	github.com/dryarullin/gopher-celery v0.0.0-00010101000000-000000000000
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/client_golang v1.12.2
 	github.com/redis/go-redis/v9 v9.0.2

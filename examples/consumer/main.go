@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/signal"
 
+	celery "github.com/dryarullin/gopher-celery"
 	"github.com/go-kit/log"
-	celery "github.com/marselester/gopher-celery"
 )
 
 func main() {

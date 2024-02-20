@@ -7,10 +7,10 @@ import (
 	"os"
 	"os/signal"
 
+	celery "github.com/dryarullin/gopher-celery"
+	celeryredis "github.com/dryarullin/gopher-celery/goredis"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	celery "github.com/marselester/gopher-celery"
-	celeryredis "github.com/marselester/gopher-celery/goredis"
 	"github.com/redis/go-redis/v9"
 )
 

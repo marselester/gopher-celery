@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"time"
 
+	celery "github.com/dryarullin/gopher-celery"
 	"github.com/go-kit/log"
-	celery "github.com/marselester/gopher-celery"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

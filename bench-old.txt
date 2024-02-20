@@ -1,6 +1,6 @@
 goos: darwin
 goarch: amd64
-pkg: github.com/marselester/gopher-celery/internal/protocol
+pkg: github.com/dryarullin/gopher-celery/internal/protocol
 cpu: Intel(R) Core(TM) i5-10600 CPU @ 3.30GHz
 BenchmarkJSONSerializerEncode_v2NoParams-12      	405000379	         2.960 ns/op	       0 B/op	       0 allocs/op
 BenchmarkJSONSerializerEncode_v2NoParams-12      	403379344	         2.970 ns/op	       0 B/op	       0 allocs/op
@@ -83,4 +83,4 @@ BenchmarkJSONSerializerEncode_v1ArgsKwargs-12    	  646405	      1768 ns/op	    
 BenchmarkJSONSerializerEncode_v1ArgsKwargs-12    	  660436	      1771 ns/op	    1001 B/op	      10 allocs/op
 BenchmarkJSONSerializerEncode_v1ArgsKwargs-12    	  668602	      1773 ns/op	    1001 B/op	      10 allocs/op
 PASS
-ok  	github.com/marselester/gopher-celery/internal/protocol	115.912s
+ok  	github.com/dryarullin/gopher-celery/internal/protocol	115.912s
