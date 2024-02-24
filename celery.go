@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/dryarullin/gopher-celery/protocol"
@@ -108,9 +107,9 @@ func (a *App) Register(path, queue string, task TaskF) {
 }
 
 // ApplyAsync sends a task message.
-func (a *App) ApplyAsync(path, queue string, p *AsyncParam) error {
+func (a *App) ApplyAsync(path, taskId, queue string, p *AsyncParam) error {
 	m := protocol.Task{
-		ID:      uuid.NewString(),
+		ID:      taskId,
 		Name:    path,
 		Args:    p.Args,
 		Kwargs:  p.Kwargs,
@@ -129,9 +128,9 @@ func (a *App) ApplyAsync(path, queue string, p *AsyncParam) error {
 
 // Delay is a shortcut to send a task message,
 // i.e., it places the task associated with given Python path into queue.
-func (a *App) Delay(path, queue string, args ...interface{}) error {
+func (a *App) Delay(path, taskId, queue string, args ...interface{}) error {
 	m := protocol.Task{
-		ID:   uuid.NewString(),
+		ID:   taskId,
 		Name: path,
 		Args: args,
 	}

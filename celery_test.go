@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
+	"github.com/google/uuid"
 
 	"github.com/dryarullin/gopher-celery/goredis"
 	"github.com/dryarullin/gopher-celery/protocol"
@@ -124,6 +125,7 @@ func TestProduceAndConsume(t *testing.T) {
 	app := NewApp(WithLogger(log.NewJSONLogger(os.Stderr)))
 	err := app.Delay(
 		"myproject.apps.myapp.tasks.mytask",
+		uuid.NewString(),
 		"important",
 		2,
 		3,
@@ -163,6 +165,7 @@ func TestProduceAndConsume100times(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		err := app.Delay(
 			"myproject.apps.myapp.tasks.mytask",
+			uuid.NewString(),
 			"important",
 			2,
 			3,
@@ -207,6 +210,7 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		err := app.Delay(
 			"myproject.apps.myapp.tasks.mytask",
+			uuid.NewString(),
 			"important",
 			2,
 			3,
