@@ -64,6 +64,7 @@ func NewApp(options ...Option) *App {
 			mime:       protocol.MimeJSON,
 			protocol:   protocol.V2,
 			maxWorkers: DefaultMaxWorkers,
+			blocking:   false,
 		},
 		task:      make(map[string]TaskF),
 		taskQueue: make(map[string]string),
@@ -146,12 +147,11 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 	return nil
 }
 
-// Run launches the workers that process the tasks received from the broker.
-// The call is blocking until ctx is cancelled.
-// The caller mustn't register any new tasks at this point.
-func (a *App) Run(ctx context.Context) error {
+// processTasks launches the workers that process the tasks received from the broker.
+func (a *App) processTasks(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
+	// Set up the list of queues to observe
 	qq := make([]string, 0, len(a.taskQueue))
 	for k := range a.taskQueue {
 		qq = append(qq, a.taskQueue[k])
@@ -159,7 +159,15 @@ func (a *App) Run(ctx context.Context) error {
 	a.conf.broker.Observe(qq)
 	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
 
-	msgs := make(chan *protocol.Task, 1)
+	// Choose between buffered and unbuffered based on blocking flag
+	var msgs chan *protocol.Task
+	if a.conf.blocking {
+		msgs = make(chan *protocol.Task)
+	} else {
+		msgs = make(chan *protocol.Task, 1)
+	}
+
+	// Task fetching goroutine
 	g.Go(func() error {
 		defer close(msgs)
 
@@ -171,64 +179,105 @@ func (a *App) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
+				// Fetch the task if not in blocking mode, semaphore is acquired here
+				if a.conf.blocking {
+					a.sem <- struct{}{}
+				}
+
 				rawMsg, err := a.conf.broker.Receive()
 				if err != nil {
+					if a.conf.blocking {
+						<-a.sem
+					}
 					return fmt.Errorf("failed to receive a raw task message: %w", err)
 				}
-				// No messages in the broker so far.
 				if rawMsg == nil {
+					if a.conf.blocking {
+						<-a.sem
+					}
 					continue
 				}
 
 				m, err := a.conf.registry.Decode(rawMsg)
 				if err != nil {
 					level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
+					if a.conf.blocking {
+						<-a.sem
+					}
 					continue
 				}
 
+				// Send to the messages channel
 				msgs <- m
 			}
 		}
 	})
 
-	go func() {
-		// Start a worker when there is a task.
-		for m := range msgs {
-			level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
+	if a.conf.blocking {
+		// Directly run processTask in blocking mode
+		return a.processTask(ctx, msgs)
+	}
 
-			if a.task[m.Name] == nil {
-				level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
-				continue
-			}
-			if m.IsExpired() {
-				level.Debug(a.conf.logger).Log("msg", "task message expired", "name", m.Name)
-				continue
-			}
-
-			select {
-			// Acquire a semaphore by sending a token.
-			case a.sem <- struct{}{}:
-			// Stop processing tasks.
-			case <-ctx.Done():
-				return
-			}
-
-			m := m
-			g.Go(func() error {
-				// Release a semaphore by discarding a token.
-				defer func() { <-a.sem }()
-
-				if err := a.executeTask(ctx, m); err != nil {
-					level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
-				} else {
-					level.Debug(a.conf.logger).Log("msg", "task succeeded", "name", m.Name)
-				}
-				return nil
-			})
-		}
-	}()
-
+	// In non-blocking mode, run processTask in a new goroutine under errgroup
+	g.Go(func() error { return a.processTask(ctx, msgs) })
 	return g.Wait()
+}
+
+// processTask handles the processing of tasks from the msgs channel.
+func (a *App) processTask(ctx context.Context, msgs <-chan *protocol.Task) error {
+	for m := range msgs {
+		level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
+
+		if a.task[m.Name] == nil {
+			level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
+			if a.conf.blocking {
+				<-a.sem
+			}
+			continue
+		}
+		if m.IsExpired() {
+			level.Debug(a.conf.logger).Log("msg", "task message expired", "name", m.Name)
+			if a.conf.blocking {
+				<-a.sem
+			}
+			continue
+		}
+
+		// Acquire semaphore in non-blocking mode (already acquired in blocking)
+		if !a.conf.blocking {
+			select {
+			case a.sem <- struct{}{}:
+			case <-ctx.Done():
+				return nil
+			}
+		}
+
+		// Define task execution logic
+		m := m
+		taskFn := func() {
+			defer func() { <-a.sem }()
+			if err := a.executeTask(ctx, m); err != nil {
+				level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
+			} else {
+				level.Debug(a.conf.logger).Log("msg", "task succeeded", "name", m.Name)
+			}
+		}
+
+		// Process the task directly in blocking mode, otherwise in a goroutine
+		if a.conf.blocking {
+			taskFn()
+		} else {
+			go taskFn()
+		}
+	}
+	return nil
+}
+
+// Run launches the workers that process the tasks received from the broker.
+// The call is blocking until ctx is cancelled.
+// The caller mustn't register any new tasks at this point.
+func (a *App) Run(ctx context.Context) error {
+	return a.processTasks(ctx)
 }
 
 type contextKey int

@@ -242,3 +242,128 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 		t.Errorf("expected sum %d got %d", want, sum)
 	}
 }
+
+func TestRunWithBlocking_SingleTask(t *testing.T) {
+	app := NewApp(
+		WithLogger(log.NewJSONLogger(os.Stderr)),
+		WithMaxWorkers(1),
+		WithBlocking(),
+	)
+	var executed bool
+
+	app.Register(
+		"myproject.apps.myapp.tasks.singleTask",
+		"important",
+		func(ctx context.Context, p *TaskParam) error {
+			executed = true
+			return nil
+		},
+	)
+
+	err := app.Delay(
+		"myproject.apps.myapp.tasks.singleTask",
+		"important",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+
+	if !executed {
+		t.Error("expected task to be executed but it wasn't")
+	}
+}
+
+func TestRunWithBlocking_MultipleTasksSequentially(t *testing.T) {
+	app := NewApp(
+		WithLogger(log.NewJSONLogger(os.Stderr)),
+		WithMaxWorkers(1),
+		WithBlocking(),
+	)
+	var count int32
+
+	app.Register(
+		"myproject.apps.myapp.tasks.sequentialTask",
+		"important",
+		func(ctx context.Context, p *TaskParam) error {
+			atomic.AddInt32(&count, 1)
+			// Simulate work to ensure tasks execute sequentially
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		},
+	)
+
+	// Queue multiple tasks
+	for i := 0; i < 5; i++ {
+		err := app.Delay(
+			"myproject.apps.myapp.tasks.sequentialTask",
+			"important",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+
+	if count != 5 {
+		t.Errorf("expected count 5 got %d", count)
+	}
+}
+
+func TestRunWithBlocking_TaskBlockingBehavior(t *testing.T) {
+	app := NewApp(
+		WithLogger(log.NewJSONLogger(os.Stderr)),
+		WithMaxWorkers(1),
+		WithBlocking(),
+	)
+	var task1Done, task2Started bool
+
+	app.Register(
+		"myproject.apps.myapp.tasks.task1",
+		"important",
+		func(ctx context.Context, p *TaskParam) error {
+			time.Sleep(300 * time.Millisecond)
+			task1Done = true
+			return nil
+		},
+	)
+	app.Register(
+		"myproject.apps.myapp.tasks.task2",
+		"important",
+		func(ctx context.Context, p *TaskParam) error {
+			task2Started = task1Done // Task 2 should only start after Task 1 is complete
+			return nil
+		},
+	)
+
+	// Queue two tasks
+	if err := app.Delay("myproject.apps.myapp.tasks.task1", "important"); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Delay("myproject.apps.myapp.tasks.task2", "important"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+
+	if !task2Started {
+		t.Error("expected task2 to start after task1 but it didn't")
+	}
+}

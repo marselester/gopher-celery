@@ -89,6 +89,13 @@ func WithMiddlewares(chain ...Middleware) Option {
 	}
 }
 
+// WithBlocking sets a flag to block the caller until the task is processed.
+func WithBlocking() Option {
+	return func(c *Config) {
+		c.blocking = true
+	}
+}
+
 // Config represents Celery settings.
 type Config struct {
 	logger     log.Logger
@@ -98,4 +105,5 @@ type Config struct {
 	protocol   int
 	maxWorkers int
 	chain      Middleware
+	blocking   bool
 }
