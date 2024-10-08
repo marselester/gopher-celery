@@ -64,6 +64,7 @@ func NewApp(options ...Option) *App {
 			mime:       protocol.MimeJSON,
 			protocol:   protocol.V2,
 			maxWorkers: DefaultMaxWorkers,
+			blocking:   false,
 		},
 		task:      make(map[string]TaskF),
 		taskQueue: make(map[string]string),
@@ -146,10 +147,69 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 	return nil
 }
 
-// Run launches the workers that process the tasks received from the broker.
-// The call is blocking until ctx is cancelled.
-// The caller mustn't register any new tasks at this point.
-func (a *App) Run(ctx context.Context) error {
+// processBlockingTasks launches the workers that process the tasks received from the broker in blocking mode.
+func (a *App) processBlockingTasks(ctx context.Context) error {
+	qq := make([]string, 0, len(a.taskQueue))
+	for k := range a.taskQueue {
+		qq = append(qq, a.taskQueue[k])
+	}
+	a.conf.broker.Observe(qq)
+	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			// Acquire the semaphore before fetching the next task
+			a.sem <- struct{}{} // Acquire semaphore
+
+			// Fetch the task from the broker
+			rawMsg, err := a.conf.broker.Receive()
+			if err != nil {
+				<-a.sem
+				return fmt.Errorf("failed to receive a raw task message: %w", err)
+			}
+			if rawMsg == nil {
+				<-a.sem
+				continue
+			}
+
+			m, err := a.conf.registry.Decode(rawMsg)
+			if err != nil {
+				level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
+				<-a.sem
+				continue
+			}
+
+			level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
+			if a.task[m.Name] == nil {
+				level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
+				<-a.sem
+				continue
+			}
+			if m.IsExpired() {
+				level.Debug(a.conf.logger).Log("msg", "task message expired", "name", m.Name)
+				<-a.sem
+				continue
+			}
+
+			// Execute the task synchronously, ensuring completion before fetching the next task
+			err = a.executeTask(ctx, m)
+			if err != nil {
+				level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
+			} else {
+				level.Debug(a.conf.logger).Log("msg", "task succeeded", "name", m.Name)
+			}
+
+			// Release semaphore only after the task completes execution
+			<-a.sem
+		}
+	}
+}
+
+// processTasks launches the workers that process the tasks received from the broker in default mode.
+func (a *App) processTasks(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 
 	qq := make([]string, 0, len(a.taskQueue))
@@ -229,6 +289,16 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	return g.Wait()
+}
+
+// Run launches the workers that process the tasks received from the broker.
+// The call is blocking until ctx is cancelled.
+// The caller mustn't register any new tasks at this point.
+func (a *App) Run(ctx context.Context) error {
+	if a.conf.blocking {
+		return a.processBlockingTasks(ctx)
+	}
+	return a.processTasks(ctx)
 }
 
 type contextKey int
