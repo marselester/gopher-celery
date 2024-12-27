@@ -127,10 +127,8 @@ func (ser *JSONSerializer) encodeV1(t *Task) (s string, err error) {
 	}
 
 	buf := ser.pool.Get().(*bytes.Buffer)
-	defer func() {
-		buf.Reset()
-		ser.pool.Put(buf)
-	}()
+	buf.Reset()
+	defer ser.pool.Put(buf)
 
 	if err = json.NewEncoder(buf).Encode(&v); err != nil {
 		return "", fmt.Errorf("json encode: %w", err)
@@ -154,10 +152,8 @@ func (ser *JSONSerializer) encodeV2(t *Task) (s string, err error) {
 	}
 
 	buf := ser.pool.Get().(*bytes.Buffer)
-	defer func() {
-		buf.Reset()
-		ser.pool.Put(buf)
-	}()
+	buf.Reset()
+	defer ser.pool.Put(buf)
 
 	buf.WriteRune('[')
 	{

@@ -84,7 +84,7 @@ func TestTaskParamGet(t *testing.T) {
 
 			got, ok := tc.p.Get(tc.pname)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf(diff)
+				t.Error(diff)
 			}
 			if tc.exists != ok {
 				t.Errorf("expected %t got %t", tc.exists, ok)
