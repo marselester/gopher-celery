@@ -242,3 +242,43 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 		t.Errorf("expected sum %d got %d", want, sum)
 	}
 }
+
+func TestConsumeSequentially(t *testing.T) {
+	app := NewApp(
+		WithLogger(log.NewJSONLogger(os.Stderr)),
+		WithMaxWorkers(1),
+	)
+	if err := app.Delay("t1", "q"); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Delay("t2", "q"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The test finishes either when ctx times out or all the tasks finish.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	t.Cleanup(cancel)
+
+	var t1Done, t2Done atomic.Bool
+	app.Register("t1", "q", func(ctx context.Context, p *TaskParam) error {
+		time.Sleep(100 * time.Millisecond)
+
+		if t2Done.Load() {
+			t.Error("t2 finished before t1")
+		}
+		t1Done.Store(true)
+
+		return nil
+	})
+	app.Register("t2", "q", func(ctx context.Context, p *TaskParam) error {
+		if !t1Done.Load() {
+			t.Error("t2 started before t1 finished")
+		}
+		t2Done.Store(true)
+
+		return nil
+	})
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+}

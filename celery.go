@@ -72,7 +72,6 @@ func NewApp(options ...Option) *App {
 	for _, opt := range options {
 		opt(&app.conf)
 	}
-	app.sem = make(chan struct{}, app.conf.maxWorkers)
 
 	if app.conf.broker == nil {
 		app.conf.broker = redis.NewBroker()
@@ -92,8 +91,6 @@ type App struct {
 	// taskQueue helps to determine which queue a task belongs to, e.g.,
 	// "myproject.apps.myapp.tasks.mytask": "important".
 	taskQueue map[string]string
-	// sem is a semaphore that limits number of workers.
-	sem chan struct{}
 }
 
 // Register associates the task with given Python path and queue.
@@ -150,14 +147,21 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 // The call is blocking until ctx is cancelled.
 // The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
-	g, ctx := errgroup.WithContext(ctx)
-
 	qq := make([]string, 0, len(a.taskQueue))
 	for k := range a.taskQueue {
 		qq = append(qq, a.taskQueue[k])
 	}
 	a.conf.broker.Observe(qq)
 	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
+
+	// Tasks are processed concurrently only if there are multiple workers.
+	if a.conf.maxWorkers <= 1 {
+		return a.syncRun(ctx)
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	// There will be at most maxWorkers goroutines processing tasks, and one fetching them.
+	g.SetLimit(a.conf.maxWorkers + 1)
 
 	msgs := make(chan *protocol.Task, 1)
 	g.Go(func() error {
@@ -167,27 +171,27 @@ func (a *App) Run(ctx context.Context) error {
 		// shouldn't be a bottleneck since the worker goroutines
 		// usually take seconds/minutes to complete.
 		for {
-			select {
-			case <-ctx.Done():
+			// Stop fetching tasks.
+			if ctx.Err() != nil {
 				return nil
-			default:
-				rawMsg, err := a.conf.broker.Receive()
-				if err != nil {
-					return fmt.Errorf("failed to receive a raw task message: %w", err)
-				}
-				// No messages in the broker so far.
-				if rawMsg == nil {
-					continue
-				}
-
-				m, err := a.conf.registry.Decode(rawMsg)
-				if err != nil {
-					level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
-					continue
-				}
-
-				msgs <- m
 			}
+
+			rawMsg, err := a.conf.broker.Receive()
+			if err != nil {
+				return fmt.Errorf("failed to receive a raw task message: %w", err)
+			}
+			// No messages in the broker so far.
+			if rawMsg == nil {
+				continue
+			}
+
+			m, err := a.conf.registry.Decode(rawMsg)
+			if err != nil {
+				level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
+				continue
+			}
+
+			msgs <- m
 		}
 	})
 
@@ -205,19 +209,13 @@ func (a *App) Run(ctx context.Context) error {
 				continue
 			}
 
-			select {
-			// Acquire a semaphore by sending a token.
-			case a.sem <- struct{}{}:
 			// Stop processing tasks.
-			case <-ctx.Done():
+			if ctx.Err() != nil {
 				return
 			}
 
 			m := m
 			g.Go(func() error {
-				// Release a semaphore by discarding a token.
-				defer func() { <-a.sem }()
-
 				if err := a.executeTask(ctx, m); err != nil {
 					level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
 				} else {
@@ -229,6 +227,49 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	return g.Wait()
+}
+
+// syncRun processes tasks one by one.
+// Note, it doesn't fetch a new task until the current one is finished.
+func (a *App) syncRun(ctx context.Context) error {
+	for {
+		// Stop fetching and processing tasks.
+		if ctx.Err() != nil {
+			return nil
+		}
+
+		rawMsg, err := a.conf.broker.Receive()
+		if err != nil {
+			return fmt.Errorf("failed to receive a raw task message: %w", err)
+		}
+		// No messages in the broker so far.
+		if rawMsg == nil {
+			continue
+		}
+
+		m, err := a.conf.registry.Decode(rawMsg)
+		if err != nil {
+			level.Error(a.conf.logger).Log("msg", "failed to decode task message", "rawmsg", rawMsg, "err", err)
+			continue
+		}
+
+		level.Debug(a.conf.logger).Log("msg", "task received", "name", m.Name)
+
+		if a.task[m.Name] == nil {
+			level.Debug(a.conf.logger).Log("msg", "unregistered task", "name", m.Name)
+			continue
+		}
+		if m.IsExpired() {
+			level.Debug(a.conf.logger).Log("msg", "task message expired", "name", m.Name)
+			continue
+		}
+
+		if err = a.executeTask(ctx, m); err != nil {
+			level.Error(a.conf.logger).Log("msg", "task failed", "taskmsg", m, "err", err)
+		} else {
+			level.Debug(a.conf.logger).Log("msg", "task succeeded", "name", m.Name)
+		}
+	}
 }
 
 type contextKey int
