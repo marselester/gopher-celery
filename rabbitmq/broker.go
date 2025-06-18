@@ -100,7 +100,8 @@ func (br *Broker) Send(m []byte, q string) error {
         false,  // mandatory
         false,  // immediate
         amqp.Publishing{
-            ContentType: "application/octet-stream",
+            ContentType: "application/json",
+            ContentEncoding: "utf-8",
             Body:        m,
         })
     if err != nil {
@@ -161,7 +162,7 @@ func (br *Broker) Receive() ([]byte, error) {
     broker.Move2back(br.queues, queue)
 
     if ok {
-        return []byte(msg.Body), nil
+        return msg.Body, nil
     }
     return nil, nil
 }
