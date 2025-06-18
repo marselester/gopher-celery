@@ -33,6 +33,7 @@ def mytask(a, b):
 For example, whenever a task `mytask` is popped from `important` queue,
 the Go function is executed with args and kwargs obtained from the task message.
 By default Redis broker (localhost) is used with json task message serialization.
+There is also a RabbitMQ broker available.
 
 ```go
 app := celery.NewApp()
