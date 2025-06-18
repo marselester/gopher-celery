@@ -20,5 +20,5 @@ jobs:
       - uses: namoshek/rabbitmq-github-action@v1
         with:
           version: '3.8.9'
-        ports: '5672:5672'
+          ports: '5672:5672'
       - run: go test -count=1 -v ./...
