@@ -116,7 +116,7 @@ func (br *Broker) Observe(queues []string) {
     for _, queue := range queues {
         _, err := br.channel.QueueDeclare(
             queue,   // name
-            false,   // durable
+            true,    // durable
             false,   // delete when unused
             false,   // exclusive
             false,   // no-wait
