@@ -1,4 +1,4 @@
-module github.com/marselester/gopher-celery
+module github.com/roncemer/gopher-celery-with-rabbitmq-broker
 
 go 1.19
 
