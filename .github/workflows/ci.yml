@@ -17,7 +17,7 @@ jobs:
       - uses: supercharge/redis-github-action@1.4.0
         with:
           redis-version: 3
-      - uses: uses: namoshek/rabbitmq-github-action@v1
+      - uses: namoshek/rabbitmq-github-action@v1
         with:
           version: '3.8.9'
       - run: go test -count=1 -v ./...
