@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/marselester/backoff"
-	celery "github.com/marselester/gopher-celery"
+	celery "github.com/roncemer/gopher-celery-with-rabbitmq-broker"
 )
 
 func main() {
