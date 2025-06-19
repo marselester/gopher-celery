@@ -4,6 +4,7 @@ package rabbitmq
 
 import (
     "context"
+    "encoding/json"
     "log"
     "time"
 
@@ -129,13 +130,27 @@ func (br *Broker) Observe(queues []string) {
     }
 }
 
+type inboundMessageBody struct {
+    ID          string                  `json:"id"`
+    Task        string                  `json:"task"`
+    Args        []interface{}           `json:"args"`
+    Kwargs      map[string]interface{}  `json:"kwargs"`
+    Expires     interface{}             `json:"expires"`    // string | nil
+    Retries     int                     `json:"retries"`
+    ETA         interface{}             `json:"eta"`        // string | nil
+    UTC         bool                    `json:"utc"`
+}
+
+type inboundMessage struct {
+	Body            []byte                 `json:"body"`
+	ContentEncoding string                 `json:"content-encoding"`
+	ContentType     string                 `json:"content-type"`
+	Headers         map[string]string      `json:"headers"`
+}
+
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
-    //ctx, cancel := context.WithTimeout(context.Background(), br.receiveTimeout)
-    //br.ctx = ctx
-    //defer cancel()
-
     const retryIntervalMs = 100
     queue := br.queues[0]
 
@@ -143,7 +158,7 @@ func (br *Broker) Receive() ([]byte, error) {
     timeoutTime := startTime.Add(br.receiveTimeout)
     msg, ok, err := br.channel.Get(queue, true)
     if err != nil {
-        log.Panicf("Failed to g a message: %s", err)
+        log.Printf("Failed to g a message: %s", err)
         return nil, nil
     }
     for !ok {
@@ -153,7 +168,7 @@ func (br *Broker) Receive() ([]byte, error) {
         }
         msg, ok, err = br.channel.Get(queue, true)
         if err != nil {
-            log.Panicf("Failed to g a message: %s", err)
+            log.Printf("Failed to g a message: %s", err)
             return nil, nil
         }
     }
@@ -162,7 +177,73 @@ func (br *Broker) Receive() ([]byte, error) {
     broker.Move2back(br.queues, queue)
 
     if ok {
-        return msg.Body, nil
+        log.Printf("msg.Body: %T %v", msg.Body, msg.Body)
+
+        var argsarr []interface{}
+        err = json.Unmarshal([]byte(msg.Body), &argsarr)
+	    if err != nil {
+		    log.Printf("json decode: %w", err)
+            return nil, nil
+	    }
+
+        body := inboundMessageBody {
+            ID: msg.Headers["id"].(string),
+            Task: msg.Headers["task"].(string),
+            Args: argsarr[0].([]interface{}),
+            Kwargs: argsarr[1].(map[string]interface{}),
+        }
+
+        expires, ok := msg.Headers["expires"]
+	    if ok {
+            body.Expires = expires
+        } else {
+            body.Expires = nil
+        }
+
+        retries, ok := msg.Headers["retries"]
+	    if ok {
+            body.Retries = int(retries.(int32))
+        } else {
+            body.Retries = 0
+        }
+
+        eta, ok := msg.Headers["eta"]
+	    if ok {
+            body.ETA = eta
+        } else {
+            body.ETA = nil
+        }
+
+        utc, ok := msg.Headers["utc"]
+	    if ok {
+            body.UTC = utc.(bool)
+        } else {
+            body.UTC = true
+        }
+
+        log.Printf("body: %T %v", body, body)
+
+        body_json, err := json.Marshal(body)
+	    if err != nil {
+		    log.Printf("json encode: %w", err)
+            return nil, nil
+	    }
+ 
+        log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
+
+        imsg := inboundMessage {
+	        Body: body_json,
+	        ContentEncoding: "utf-8",
+	        ContentType: "application/json",
+	        //Headers: {},
+        }
+
+        log.Printf("imsg: %T %v", imsg, imsg)
+
+
+        result, err := json.Marshal(imsg)
+
+        return result, nil
     }
     return nil, nil
 }
