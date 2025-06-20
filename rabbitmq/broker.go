@@ -5,6 +5,7 @@ package rabbitmq
 import (
     "context"
     "encoding/json"
+    "fmt"
     "log"
     "time"
 
@@ -151,14 +152,22 @@ type inboundMessage struct {
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
+
     const retryIntervalMs = 100
     queue := br.queues[0]
 
+    try_receive := func() (msg amqp.Delivery, ok bool, err error) {
+        my_msg, my_ok, my_err := br.channel.Get(queue, true)
+        if my_err != nil {
+            log.Printf("Failed to g a message: %s", my_err)
+        }
+        return my_msg, my_ok, my_err
+    }
+
     startTime := time.Now()
     timeoutTime := startTime.Add(br.receiveTimeout)
-    msg, ok, err := br.channel.Get(queue, true)
+    msg, ok, err := try_receive()
     if err != nil {
-        log.Printf("Failed to g a message: %s", err)
         return nil, nil
     }
     for !ok {
@@ -166,9 +175,8 @@ func (br *Broker) Receive() ([]byte, error) {
         if time.Now().After(timeoutTime) {
             break
         }
-        msg, ok, err = br.channel.Get(queue, true)
+        msg, ok, err = try_receive()
         if err != nil {
-            log.Printf("Failed to g a message: %s", err)
             return nil, nil
         }
     }
@@ -177,12 +185,13 @@ func (br *Broker) Receive() ([]byte, error) {
     broker.Move2back(br.queues, queue)
 
     if ok {
-        log.Printf("msg.Body: %T %v", msg.Body, msg.Body)
+        //log.Printf("msg.Body: %T %v", msg.Body, msg.Body)
 
         var argsarr []interface{}
         err = json.Unmarshal([]byte(msg.Body), &argsarr)
 	    if err != nil {
-		    log.Printf("json decode: %w", err)
+            err_str := fmt.Errorf("%w", err)
+		    log.Printf("json decode: %s", err_str)
             return nil, nil
 	    }
 
@@ -221,15 +230,16 @@ func (br *Broker) Receive() ([]byte, error) {
             body.UTC = true
         }
 
-        log.Printf("body: %T %v", body, body)
+        //log.Printf("body: %T %v", body, body)
 
         body_json, err := json.Marshal(body)
 	    if err != nil {
-		    log.Printf("json encode: %w", err)
+            err_str := fmt.Errorf("%w", err)
+		    log.Printf("json encode: %s", err_str)
             return nil, nil
 	    }
  
-        log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
+        //log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
 
         imsg := inboundMessage {
 	        Body: body_json,
@@ -238,10 +248,14 @@ func (br *Broker) Receive() ([]byte, error) {
 	        //Headers: {},
         }
 
-        log.Printf("imsg: %T %v", imsg, imsg)
-
+        //log.Printf("imsg: %T %v", imsg, imsg)
 
         result, err := json.Marshal(imsg)
+	    if err != nil {
+            err_str := fmt.Errorf("%w", err)
+		    log.Printf("json encode: %s", err_str)
+            return nil, nil
+	    }
 
         return result, nil
     }
