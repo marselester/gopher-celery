@@ -102,9 +102,23 @@ func NewBroker(options ...BrokerOption) *Broker {
     return &br
 }
 
+// Marshal data from m in internal Celery format to body in RabbitMQ Celery format.
+func marshalInternalFormatToRabbitMQCeleryMessage(m []byte) ([]byte) {
+    // TODO: Write the data marshaling from m to body here.
+    return m
+}
+
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
+    var body []byte
+
+    if br.rawMode {
+        body = m
+    } else {
+        body = marshalInternalFormatToRabbitMQCeleryMessage(m)
+    }
+
     err := br.channel.PublishWithContext(
         br.ctx,
         "",     // exchange
@@ -114,7 +128,7 @@ func (br *Broker) Send(m []byte, q string) error {
         amqp.Publishing{
             ContentType: "application/json",
             ContentEncoding: "utf-8",
-            Body:        m,
+            Body:        body,
         })
     if err != nil {
         log.Panicf("Failed to publish a message: %s", err)
@@ -159,6 +173,83 @@ type inboundMessage struct {
 	Headers         map[string]string      `json:"headers"`
 }
 
+// Marshal msg from RabbitMQ Celery format to internal Celery format.
+func marshalRabbitMQCeleryMessageToInternalFormat(msg amqp.Delivery) ([]byte) {
+    var argsarr []interface{}
+    var err error
+
+    err = json.Unmarshal([]byte(msg.Body), &argsarr)
+    if err != nil {
+        err_str := fmt.Errorf("%w", err)
+        log.Printf("json decode: %s", err_str)
+        return nil
+    }
+
+    body := inboundMessageBody {
+        ID: msg.Headers["id"].(string),
+        Task: msg.Headers["task"].(string),
+        Args: argsarr[0].([]interface{}),
+        Kwargs: argsarr[1].(map[string]interface{}),
+    }
+
+    expires, ok := msg.Headers["expires"]
+    if ok {
+        body.Expires = expires
+    } else {
+        body.Expires = nil
+    }
+
+    retries, ok := msg.Headers["retries"]
+    if ok {
+        body.Retries = int(retries.(int32))
+    } else {
+        body.Retries = 0
+    }
+
+    eta, ok := msg.Headers["eta"]
+    if ok {
+        body.ETA = eta
+    } else {
+        body.ETA = nil
+    }
+
+    utc, ok := msg.Headers["utc"]
+    if ok {
+        body.UTC = utc.(bool)
+    } else {
+        body.UTC = true
+    }
+
+    //log.Printf("body: %T %v", body, body)
+
+    body_json, err := json.Marshal(body)
+    if err != nil {
+        err_str := fmt.Errorf("%w", err)
+        log.Printf("json encode: %s", err_str)
+        return nil
+    }
+ 
+    //log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
+
+    imsg := inboundMessage {
+        Body: body_json,
+        ContentEncoding: "utf-8",
+        ContentType: "application/json",
+        //Headers: {},
+    }
+
+    //log.Printf("imsg: %T %v", imsg, imsg)
+
+    result, err := json.Marshal(imsg)
+    if err != nil {
+        err_str := fmt.Errorf("%w", err)
+        log.Printf("json encode: %s", err_str)
+        return nil
+    }
+
+    return result
+}
+
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
@@ -201,77 +292,7 @@ func (br *Broker) Receive() ([]byte, error) {
             return msg.Body, nil
         }
 
-        var argsarr []interface{}
-        err = json.Unmarshal([]byte(msg.Body), &argsarr)
-	    if err != nil {
-            err_str := fmt.Errorf("%w", err)
-		    log.Printf("json decode: %s", err_str)
-            return nil, nil
-	    }
-
-        body := inboundMessageBody {
-            ID: msg.Headers["id"].(string),
-            Task: msg.Headers["task"].(string),
-            Args: argsarr[0].([]interface{}),
-            Kwargs: argsarr[1].(map[string]interface{}),
-        }
-
-        expires, ok := msg.Headers["expires"]
-	    if ok {
-            body.Expires = expires
-        } else {
-            body.Expires = nil
-        }
-
-        retries, ok := msg.Headers["retries"]
-	    if ok {
-            body.Retries = int(retries.(int32))
-        } else {
-            body.Retries = 0
-        }
-
-        eta, ok := msg.Headers["eta"]
-	    if ok {
-            body.ETA = eta
-        } else {
-            body.ETA = nil
-        }
-
-        utc, ok := msg.Headers["utc"]
-	    if ok {
-            body.UTC = utc.(bool)
-        } else {
-            body.UTC = true
-        }
-
-        //log.Printf("body: %T %v", body, body)
-
-        body_json, err := json.Marshal(body)
-	    if err != nil {
-            err_str := fmt.Errorf("%w", err)
-		    log.Printf("json encode: %s", err_str)
-            return nil, nil
-	    }
- 
-        //log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
-
-        imsg := inboundMessage {
-	        Body: body_json,
-	        ContentEncoding: "utf-8",
-	        ContentType: "application/json",
-	        //Headers: {},
-        }
-
-        //log.Printf("imsg: %T %v", imsg, imsg)
-
-        result, err := json.Marshal(imsg)
-	    if err != nil {
-            err_str := fmt.Errorf("%w", err)
-		    log.Printf("json encode: %s", err_str)
-            return nil, nil
-	    }
-
-        return result, nil
+        return marshalRabbitMQCeleryMessageToInternalFormat(msg), nil
     }
     return nil, nil
 }
