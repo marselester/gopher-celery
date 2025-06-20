@@ -27,10 +27,11 @@ type BrokerOption func(*Broker)
 // Broker is a RabbitMQ broker that sends/receives messages from specified queues.
 type Broker struct {
     amqpUri        string
+    receiveTimeout time.Duration
+    rawMode        bool
+    queues         []string
     conn           *amqp.Connection
     channel        *amqp.Channel
-    queues         []string
-    receiveTimeout time.Duration
     ctx            context.Context
 }
 
@@ -51,6 +52,14 @@ func WithReceiveTimeout(timeout time.Duration) BrokerOption {
     }
 }
 
+// WithRawMode sets rawMode, which, if true, disables marshaling of data structures between internal and RabbitMQ Celery formats.
+// Note that rawMode defaults to false, and should only be set to true inside the broker unit tests.
+func WithRawMode(rawMode bool) BrokerOption {
+    return func(br *Broker) {
+        br.rawMode = rawMode
+    }
+}
+
 // WithClient sets RabbitMQ client representing a connection to RabbitMQ.
 func WithClient(c *amqp.Connection) BrokerOption {
     return func(br *Broker) {
@@ -64,6 +73,7 @@ func NewBroker(options ...BrokerOption) *Broker {
     br := Broker{
         amqpUri:        DefaultAmqpUri,
         receiveTimeout: DefaultReceiveTimeout * time.Second,
+        rawMode:        false,
         ctx:            context.Background(),
     }
     for _, opt := range options {
@@ -186,6 +196,10 @@ func (br *Broker) Receive() ([]byte, error) {
 
     if ok {
         //log.Printf("msg.Body: %T %v", msg.Body, msg.Body)
+
+        if br.rawMode {
+            return msg.Body, nil
+        }
 
         var argsarr []interface{}
         err = json.Unmarshal([]byte(msg.Body), &argsarr)
