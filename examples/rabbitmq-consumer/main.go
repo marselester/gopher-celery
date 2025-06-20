@@ -22,7 +22,7 @@ func main() {
 	)
 	app.Register(
 		"myproject.mytask",
-		"celery",
+		"important",
 		func(ctx context.Context, p *celery.TaskParam) error {
 			p.NameArgs("a", "b")
 			fmt.Printf("received a=%s b=%s\n", p.MustString("a"), p.MustString("b"))
