@@ -1,4 +1,4 @@
-// Program consumer receives "myproject.mytask" tasks from "celery" queue.
+// Program consumer receives "myproject.mytask" tasks from "important" queue.
 package main
 
 import (
@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	broker := celeryrabbitmq.NewBroker(celeryrabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))
 	logger := log.NewJSONLogger(log.NewSyncWriter(os.Stderr))
 
+	broker := celeryrabbitmq.NewBroker(celeryrabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))
 	app := celery.NewApp(
         celery.WithBroker(broker),
 		celery.WithLogger(logger),
