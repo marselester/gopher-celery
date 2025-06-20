@@ -270,101 +270,30 @@ func (br *Broker) Receive() ([]byte, error) {
     // Put the Celery queue name to the end of the slice for fair processing.
     broker.Move2back(br.queues, queue)
 
-    //log.Printf("msg: %T %s", msg, msg)
-
     if br.rawMode {
         return msg.Body, nil
     }
 
     // Marshal msg from RabbitMQ Celery format to internal Celery format.
 
-    // TODO: Delete after debugging.
-    var msg_json []byte
-    msg_json, err = json.Marshal(msg)
-    log.Println("test point a: %T %v JSON: %s", msg, msg, string(msg_json))
+    properties := make(map[string]interface{})
+    properties["correlation_id"] = msg.CorrelationId
+    properties["reply_to"] = msg.ReplyTo
+    properties["delivery_mode"] = msg.DeliveryMode
+    delivery_info := make(map[string]interface{})
+    properties["delivery_info"] = delivery_info
+    delivery_info["exchange"] = msg.Exchange
+    delivery_info["routing_key"] = msg.RoutingKey
+    properties["priority"] = msg.Priority
+    properties["body_encoding"] = "base64"
+    properties["delivery_tag"] = msg.DeliveryTag
 
-    // TODO: Delete after debugging.
-    var msg_headers_json []byte
-    msg_headers_json, err = json.Marshal(msg.Headers)
-    log.Println("test point b: %T %v JSON: %s", msg.Headers, msg.Headers, string(msg_headers_json))
-
-    var protocolVersion int
-
-    body := make(map[string]interface{})
-    body["id"] = msg.Headers["id"]
-    task, task_header_exists := msg.Headers["task"]
-    if task_header_exists {
-        protocolVersion = 2
-        body["task"] = task
-    } else {
-        protocolVersion = 1
-    }
-
-    if protocolVersion == 2 {
-        var body_arr []interface{}
-        err = json.Unmarshal([]byte(msg.Body), &body_arr)
-        if err != nil {
-            err_str := fmt.Errorf("%w", err)
-            log.Printf("json decode: %s", err_str)
-            return nil, nil
-        }
-
-        body["args"] = body_arr[0]
-        body["kwargs"] = body_arr[1]
-    } else {
-        var body_map map[string]interface{}
-        err = json.Unmarshal([]byte(msg.Body), &body_map)
-        if err != nil {
-            err_str := fmt.Errorf("%w", err)
-            log.Printf("json decode: %s", err_str)
-            return nil, nil
-        }
-
-        body["args"] = body_map["args"]
-        body["kwargs"] = body_map["kwargs"]
-    }
-
-    expires, ok := msg.Headers["expires"]
-    if ok {
-        body["expires"] = expires
-    } else {
-        body["expires"] = nil
-    }
-
-    retries, ok := msg.Headers["retries"]
-    if ok {
-        body["retries"] = retries
-    } else {
-        body["retries"] = 0
-    }
-
-    eta, ok := msg.Headers["eta"]
-    if ok {
-        body["eta"] = eta
-    } else {
-        body["eta"] = nil
-    }
-
-    utc, ok := msg.Headers["utc"]
-    if ok {
-        body["utc"] = utc
-    } else {
-        body["utc"] = true
-    }
-
-    var body_json []byte
-    body_json, err = json.Marshal(body)
-    if err != nil {
-        err_str := fmt.Errorf("%w", err)
-        log.Printf("json encode: %s", err_str)
-        return nil, nil
-    }
- 
     imsg := make(map[string]interface{})
-    imsg["body"] = body_json
-    // TODO: Get these from the correct place instead of hard-coding them.
+    imsg["body"] = msg.Body
     imsg["content-encoding"] = msg.ContentEncoding
     imsg["content-type"] = msg.ContentType
+    imsg["headers"] = msg.Headers
+    imsg["properties"] = properties
 
     var result []byte
     result, err = json.Marshal(imsg)
