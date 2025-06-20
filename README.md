@@ -72,12 +72,14 @@ if err != nil {
 }
 ```
 
-More examples can be found in [the examples](examples) dir.
-Note, you'll need a Redis server to run them.
+### Redis Examples
+
+Redis examples can be found in [the redis examples](examples/redis) dir.
+Note: You'll need a Redis server to run the examples which use Redis.
 
 ```sh
 $ redis-server
-$ cd ./examples/
+$ cd ./examples/redis
 ```
 
 <details>
@@ -176,9 +178,51 @@ $ go run ./retry/
 
 </details>
 
+
+### RabbitMQ Examples
+
+RabbitMQ examples can be found in [the rabbitmq examples](examples/rabbitmq) dir.
+Note: You'll need a RabbitMQ server to run the examples which use RabbitMQ.
+
+```sh
+$ rabbitmq-server
+$ cd ./examples/rabbitmq
+```
+
+<details>
+
+<summary>Sending tasks from Go and receiving them on Python side.</summary>
+
+```sh
+$ go run ./producer/
+{"err":null,"msg":"task was sent using protocol v2"}
+{"err":null,"msg":"task was sent using protocol v1"}
+$ celery --app myproject worker --queues important --loglevel=debug --without-heartbeat --without-mingle
+...
+[... WARNING/ForkPoolWorker-1] received a=fizz b=bazz
+[... WARNING/ForkPoolWorker-8] received a=fizz b=bazz
+```
+
+</details>
+
+<details>
+
+<summary>Sending tasks from Python and receiving them on Go side.</summary>
+
+```sh
+$ python producer.py
+$ go run ./consumer/
+{"msg":"waiting for tasks..."}
+received a=fizz b=bazz
+received a=fizz b=bazz
+```
+
+</details>
+
+
 ## Testing
 
-Tests require a Redis server running locally.
+Tests require both a Redis and a RabbitMQ server running locally.
 
 ```sh
 $ go test -v -count=1 ./...
