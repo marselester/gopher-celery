@@ -21,7 +21,9 @@ func main() {
 	err := app.Delay("myproject.mytask", "important", "fizz", "bazz")
 	logger.Log("msg", "task was sent using protocol v2", "err", err)
 
+    broker = celeryrabbitmq.NewBroker(celeryrabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))
 	app = celery.NewApp(
+        celery.WithBroker(broker),
 		celery.WithLogger(logger),
 		celery.WithTaskProtocol(1),
 	)
