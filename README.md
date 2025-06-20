@@ -107,8 +107,9 @@ $ python producer.py
 $ go run ./consumer/
 {"msg":"waiting for tasks..."}
 received a=fizz b=bazz
-received a=fizz b=bazz
 ```
+
+To send a task with Celery Protocol version 1, run *producer_v1.py* instead of *producer.py*.
 
 </details>
 
@@ -214,8 +215,9 @@ $ python producer.py
 $ go run ./consumer/
 {"msg":"waiting for tasks..."}
 received a=fizz b=bazz
-received a=fizz b=bazz
 ```
+
+To send a task with Celery Protocol version 1, run *producer_v1.py* instead of *producer.py*.
 
 </details>
 
