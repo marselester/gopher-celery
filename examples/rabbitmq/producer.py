@@ -22,7 +22,3 @@ def mytask(a, b):
     pass
 
 mytask.apply_async(args=('fizz',), kwargs={'b': 'bazz'}, queue='important')
-
-app.conf.update(CELERY_TASK_PROTOCOL=1)
-
-mytask.apply_async(args=('fizz',), kwargs={'b': 'bazz'}, queue='important')
