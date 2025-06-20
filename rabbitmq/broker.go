@@ -129,11 +129,6 @@ func (br *Broker) Send(m []byte, q string) error {
             return err
         }
 
-        // TODO: Delete this after debugging.
-        for k, v := range msgmap {
-            fmt.Printf("msgmap k: %s,  v: %T $v %s\n", k, v, v, v)
-        }
-
         contentType = msgmap["content-type"].(string)
         contentEncoding = msgmap["content-encoding"].(string)
         body, err = base64.StdEncoding.DecodeString(msgmap["body"].(string))
