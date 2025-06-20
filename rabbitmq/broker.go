@@ -4,6 +4,7 @@ package rabbitmq
 
 import (
     "context"
+    "encoding/base64"
     "encoding/json"
     "fmt"
     "log"
@@ -102,21 +103,60 @@ func NewBroker(options ...BrokerOption) *Broker {
     return &br
 }
 
-// Marshal data from m in internal Celery format to body in RabbitMQ Celery format.
-func marshalInternalFormatToRabbitMQCeleryMessage(m []byte) ([]byte) {
-    // TODO: Write the data marshaling from m to body here.
-    return m
-}
-
 // Send inserts the specified message at the head of the queue using LPUSH command.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
     var body []byte
+    var contentType string
+    var contentEncoding string
+    var deliveryMode uint8
+    var correlationId string
+    headers := make(amqp.Table)
 
     if br.rawMode {
+        contentType = "application/json"
+        contentEncoding = "utf-8"
+        deliveryMode = 2
+        correlationId = ""
         body = m
     } else {
-        body = marshalInternalFormatToRabbitMQCeleryMessage(m)
+        var msgmap map[string]interface{}
+        err := json.Unmarshal(m, &msgmap)
+        if err != nil {
+            log.Panicf("Failed to publish a message: %s", err)
+            return err
+        }
+
+        // TODO: Delete this after debugging.
+        for k, v := range msgmap {
+            fmt.Printf("msgmap k: %s,  v: %T $v %s\n", k, v, v, v)
+        }
+
+        contentType = msgmap["content-type"].(string)
+        contentEncoding = msgmap["content-encoding"].(string)
+        body, err = base64.StdEncoding.DecodeString(msgmap["body"].(string))
+        if err != nil {
+            log.Panicf("Failed to publish a message: %s", err)
+            return err
+        }
+
+        properties_in := msgmap["properties"].(map[string]interface{})
+        deliveryMode = uint8(properties_in["delivery_mode"].(float64))
+        correlationId = properties_in["correlation_id"].(string)
+
+        headers_in := msgmap["headers"].(map[string]interface{})
+
+        headers["id"] = headers_in["id"]
+        headers["root_id"] = headers_in["root_id"]
+        // Protocol version 2 is indicated by the presence of the task message header.
+        task, task_header_exists := headers_in["task"]
+        if task_header_exists {
+            headers["task"] = task
+        }
+        headers["origin"] = headers_in["origin"]
+        headers["expires"] = headers_in["expires"]
+        headers["retries"] = headers_in["retries"]
+        headers["lang"] = headers_in["lang"]
     }
 
     err := br.channel.PublishWithContext(
@@ -126,9 +166,12 @@ func (br *Broker) Send(m []byte, q string) error {
         false,  // mandatory
         false,  // immediate
         amqp.Publishing{
-            ContentType: "application/json",
-            ContentEncoding: "utf-8",
-            Body:        body,
+            Headers: headers,
+            ContentType: contentType,
+            ContentEncoding: contentEncoding,
+            DeliveryMode: deliveryMode,
+            CorrelationId: correlationId,
+            Body: body,
         })
     if err != nil {
         log.Panicf("Failed to publish a message: %s", err)
@@ -155,101 +198,6 @@ func (br *Broker) Observe(queues []string) {
     }
 }
 
-type inboundMessageBody struct {
-    ID          string                  `json:"id"`
-    Task        string                  `json:"task"`
-    Args        []interface{}           `json:"args"`
-    Kwargs      map[string]interface{}  `json:"kwargs"`
-    Expires     interface{}             `json:"expires"`    // string | nil
-    Retries     int                     `json:"retries"`
-    ETA         interface{}             `json:"eta"`        // string | nil
-    UTC         bool                    `json:"utc"`
-}
-
-type inboundMessage struct {
-	Body            []byte                 `json:"body"`
-	ContentEncoding string                 `json:"content-encoding"`
-	ContentType     string                 `json:"content-type"`
-	Headers         map[string]string      `json:"headers"`
-}
-
-// Marshal msg from RabbitMQ Celery format to internal Celery format.
-func marshalRabbitMQCeleryMessageToInternalFormat(msg amqp.Delivery) ([]byte) {
-    var argsarr []interface{}
-    var err error
-
-    err = json.Unmarshal([]byte(msg.Body), &argsarr)
-    if err != nil {
-        err_str := fmt.Errorf("%w", err)
-        log.Printf("json decode: %s", err_str)
-        return nil
-    }
-
-    body := inboundMessageBody {
-        ID: msg.Headers["id"].(string),
-        Task: msg.Headers["task"].(string),
-        Args: argsarr[0].([]interface{}),
-        Kwargs: argsarr[1].(map[string]interface{}),
-    }
-
-    expires, ok := msg.Headers["expires"]
-    if ok {
-        body.Expires = expires
-    } else {
-        body.Expires = nil
-    }
-
-    retries, ok := msg.Headers["retries"]
-    if ok {
-        body.Retries = int(retries.(int32))
-    } else {
-        body.Retries = 0
-    }
-
-    eta, ok := msg.Headers["eta"]
-    if ok {
-        body.ETA = eta
-    } else {
-        body.ETA = nil
-    }
-
-    utc, ok := msg.Headers["utc"]
-    if ok {
-        body.UTC = utc.(bool)
-    } else {
-        body.UTC = true
-    }
-
-    //log.Printf("body: %T %v", body, body)
-
-    body_json, err := json.Marshal(body)
-    if err != nil {
-        err_str := fmt.Errorf("%w", err)
-        log.Printf("json encode: %s", err_str)
-        return nil
-    }
- 
-    //log.Printf("body_json: %T %v %s", body_json, body_json, body_json)
-
-    imsg := inboundMessage {
-        Body: body_json,
-        ContentEncoding: "utf-8",
-        ContentType: "application/json",
-        //Headers: {},
-    }
-
-    //log.Printf("imsg: %T %v", imsg, imsg)
-
-    result, err := json.Marshal(imsg)
-    if err != nil {
-        err_str := fmt.Errorf("%w", err)
-        log.Printf("json encode: %s", err_str)
-        return nil
-    }
-
-    return result
-}
-
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
@@ -272,10 +220,11 @@ func (br *Broker) Receive() ([]byte, error) {
         return nil, nil
     }
     for !ok {
-        time.Sleep(retryIntervalMs * time.Millisecond)
         if time.Now().After(timeoutTime) {
-            break
+            return nil, nil
         }
+        time.Sleep(retryIntervalMs * time.Millisecond)
+
         msg, ok, err = try_receive()
         if err != nil {
             return nil, nil
@@ -285,14 +234,100 @@ func (br *Broker) Receive() ([]byte, error) {
     // Put the Celery queue name to the end of the slice for fair processing.
     broker.Move2back(br.queues, queue)
 
-    if ok {
-        //log.Printf("msg.Body: %T %v", msg.Body, msg.Body)
+    //log.Printf("msg: %T %s", msg, msg)
 
-        if br.rawMode {
-            return msg.Body, nil
+    if br.rawMode {
+        return msg.Body, nil
+    }
+
+    // Marshal msg from RabbitMQ Celery format to internal Celery format.
+
+    log.Println("test point a: %T %v %s", msg.Body, msg.Body, string(msg.Body))
+
+    var protocolVersion int
+
+    body := make(map[string]interface{})
+    body["id"] = msg.Headers["id"]
+    task, task_header_exists := msg.Headers["task"]
+    if task_header_exists {
+        protocolVersion = 2
+        body["task"] = task
+    } else {
+        protocolVersion = 1
+    }
+
+    if protocolVersion == 2 {
+        var body_arr []interface{}
+        err = json.Unmarshal([]byte(msg.Body), &body_arr)
+        if err != nil {
+            err_str := fmt.Errorf("%w", err)
+            log.Printf("json decode: %s", err_str)
+            return nil, nil
         }
 
-        return marshalRabbitMQCeleryMessageToInternalFormat(msg), nil
+        body["args"] = body_arr[0]
+        body["kwargs"] = body_arr[1]
+    } else {
+        var body_map map[string]interface{}
+        err = json.Unmarshal([]byte(msg.Body), &body_map)
+        if err != nil {
+            err_str := fmt.Errorf("%w", err)
+            log.Printf("json decode: %s", err_str)
+            return nil, nil
+        }
+
+        body["args"] = body_map["args"]
+        body["kwargs"] = body_map["kwargs"]
     }
-    return nil, nil
+
+    expires, ok := msg.Headers["expires"]
+    if ok {
+        body["expires"] = expires
+    } else {
+        body["expires"] = nil
+    }
+
+    retries, ok := msg.Headers["retries"]
+    if ok {
+        body["retries"] = retries
+    } else {
+        body["retries"] = 0
+    }
+
+    eta, ok := msg.Headers["eta"]
+    if ok {
+        body["eta"] = eta
+    } else {
+        body["eta"] = nil
+    }
+
+    utc, ok := msg.Headers["utc"]
+    if ok {
+        body["utc"] = utc
+    } else {
+        body["utc"] = true
+    }
+
+    var body_json []byte
+    body_json, err = json.Marshal(body)
+    if err != nil {
+        err_str := fmt.Errorf("%w", err)
+        log.Printf("json encode: %s", err_str)
+        return nil, nil
+    }
+ 
+    imsg := make(map[string]interface{})
+    imsg["body"] = body_json
+    imsg["content-encoding"] = "utf-8"
+    imsg["content-type"] = "application/json"
+
+    var result []byte
+    result, err = json.Marshal(imsg)
+    if err != nil {
+        err_str := fmt.Errorf("%w", err)
+        log.Printf("json encode: %s", err_str)
+        return nil, nil
+    }
+
+    return result, nil
 }
