@@ -3,7 +3,7 @@ package celery
 import (
 	"github.com/go-kit/log"
 
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/protocol"
+	"github.com/marselester/gopher-celery/protocol"
 )
 
 // DefaultMaxWorkers is the default upper limit of goroutines

@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/protocol"
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/redis"
+	"github.com/marselester/gopher-celery/protocol"
+	"github.com/marselester/gopher-celery/redis"
 )
 
 // TaskF represents a Celery task implemented by the client.

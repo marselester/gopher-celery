@@ -1,8 +1,8 @@
-module github.com/roncemer/gopher-celery-with-rabbitmq-broker/examples
+module github.com/marselester/gopher-celery/examples
 
 go 1.21
 
-replace github.com/roncemer/gopher-celery-with-rabbitmq-broker => ../
+replace github.com/marselester/gopher-celery => ../
 
 require (
 	github.com/go-kit/log v0.2.1
@@ -11,7 +11,7 @@ require (
 	github.com/oklog/run v1.1.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.7.0
-	github.com/roncemer/gopher-celery-with-rabbitmq-broker v0.0.0-00010101000000-000000000000
+	github.com/marselester/gopher-celery v0.0.0-00010101000000-000000000000
 )
 
 require (

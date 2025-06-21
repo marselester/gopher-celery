@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-kit/log"
 
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/goredis"
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/protocol"
+	"github.com/marselester/gopher-celery/goredis"
+	"github.com/marselester/gopher-celery/protocol"
 )
 
 func TestExecuteTaskPanic(t *testing.T) {

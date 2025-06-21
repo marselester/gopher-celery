@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
-	celery "github.com/roncemer/gopher-celery-with-rabbitmq-broker"
+	celery "github.com/marselester/gopher-celery"
 	"github.com/oklog/run"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

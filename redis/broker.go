@@ -8,7 +8,7 @@ import (
 
 	"github.com/gomodule/redigo/redis"
 
-	"github.com/roncemer/gopher-celery-with-rabbitmq-broker/internal/broker"
+	"github.com/marselester/gopher-celery/internal/broker"
 )
 
 // DefaultReceiveTimeout defines how many seconds the broker's Receive command
