@@ -2,7 +2,7 @@
 producer
 ~~~~~~~~
 
-This module sends two "myproject.mytask" tasks to "important" queue.
+This module a "myproject.mytask" task to the "important" queue, with Celery protocol version 1.
 
 """
 from celery import Celery
