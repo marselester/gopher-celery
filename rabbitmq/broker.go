@@ -12,7 +12,7 @@ import (
 
     amqp "github.com/rabbitmq/amqp091-go"
 
-    "github.com/roncemer/gopher-celery-with-rabbitmq-broker/internal/broker"
+    "github.com/marselester/gopher-celery/internal/broker"
 )
 
 // DefaultAmqpUri defines the default AMQP URI which is used to connect to RabbitMQ.
