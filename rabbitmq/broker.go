@@ -12,7 +12,7 @@ import (
 
     amqp "github.com/rabbitmq/amqp091-go"
 
-    "github.com/marselester/gopher-celery/internal/broker"
+    "github.com/roncemer/gopher-celery-with-rabbitmq-broker/internal/broker"
 )
 
 // DefaultAmqpUri defines the default AMQP URI which is used to connect to RabbitMQ.
@@ -190,9 +190,11 @@ func (br *Broker) Observe(queues []string) {
 func (br *Broker) Receive() ([]byte, error) {
 
     const retryIntervalMs = 100
-    queue := br.queues[0]
 
     try_receive := func() (msg amqp.Delivery, ok bool, err error) {
+        queue := br.queues[0]
+        // Put the Celery queue name to the end of the slice for fair processing.
+        broker.Move2back(br.queues, queue)
         my_msg, my_ok, my_err := br.channel.Get(queue, true)
         if my_err != nil {
             log.Printf("Failed to g a message: %s", my_err)
@@ -218,8 +220,6 @@ func (br *Broker) Receive() ([]byte, error) {
         }
     }
 
-    // Put the Celery queue name to the end of the slice for fair processing.
-    broker.Move2back(br.queues, queue)
 
     if br.rawMode {
         return msg.Body, nil
