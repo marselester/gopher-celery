@@ -152,8 +152,8 @@ func (a *App) Run(ctx context.Context) error {
 	qq := []string{}
 	for _, v := range a.taskQueue {
 		if v != "" && slices.Index(qq, v) < 0 {
-		    qq = append(qq, v)
-        }
+			qq = append(qq, v)
+		}
 	}
 
 	a.conf.broker.Observe(qq)
