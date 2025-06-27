@@ -148,22 +148,16 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 // The call is blocking until ctx is cancelled.
 // The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
-	// Build list of all queue names for registered tasks.
-	qq := make([]string, 0, len(a.taskQueue))
-	for k := range a.taskQueue {
-		qq = append(qq, a.taskQueue[k])
+	// Build list of all unique, non-empty queue names for registered tasks.
+	qq := []string{}
+	for _, v := range a.taskQueue {
+		if v != "" && slices.Index(qq, v) < 0 {
+		    qq = append(qq, v)
+        }
 	}
 
-	// Build list of unique, non-empty queue names.
-	uqq := []string{}
-	for _, v := range qq {
-		if v != "" && slices.Index(uqq, v) < 0 {
-			uqq = append(uqq, v)
-		}
-	}
-
-	a.conf.broker.Observe(uqq)
-	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", uqq)
+	a.conf.broker.Observe(qq)
+	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
 
 	// Tasks are processed concurrently only if there are multiple workers.
 	if a.conf.maxWorkers <= 1 {
