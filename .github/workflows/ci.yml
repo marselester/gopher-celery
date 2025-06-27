@@ -10,15 +10,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: ^1.19
-      - uses: supercharge/redis-github-action@1.4.0
+          go-version: stable
+      - uses: supercharge/redis-github-action@1.8.0
         with:
-          redis-version: 3
+          redis-version: 7
       - uses: namoshek/rabbitmq-github-action@v1
         with:
           version: '3.8.9'
           ports: '5672:5672'
       - run: go test -count=1 -v ./...
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1
