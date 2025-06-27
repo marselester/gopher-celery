@@ -88,7 +88,7 @@ func TestJSONSerializerEncode(t *testing.T) {
 			}
 
 			got := string(
-				bytes.Replace(gotb64, []byte("\n"), nil, -1),
+				bytes.ReplaceAll(gotb64, []byte("\n"), nil),
 			)
 			if diff := cmp.Diff(tc.body, got); diff != "" {
 				t.Error(diff, got)
