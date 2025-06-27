@@ -74,7 +74,7 @@ type Broker struct {
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
 	conn := br.pool.Get()
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	_, err := conn.Do("LPUSH", q, m)
 	return err
@@ -99,7 +99,7 @@ func (br *Broker) Observe(queues []string) {
 // Note, the method is not concurrency safe.
 func (br *Broker) Receive() ([]byte, error) {
 	conn := br.pool.Get()
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// See the discussion regarding timeout and Context cancellation
 	// https://github.com/gomodule/redigo/issues/207#issuecomment-283815775.

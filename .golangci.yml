@@ -1,0 +1,10 @@
+version: "2"
+linters:
+  exclusions:
+    rules:
+      - source: "\\.Log\\("
+        linters:
+          - errcheck
+      - path: '(.+)_test\.go'
+        linters:
+          - errcheck
