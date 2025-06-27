@@ -8,7 +8,6 @@ import (
 )
 
 func TestReceive(t *testing.T) {
-
 	q := "rabbitmqq"
 
 	tests := map[string]struct {
@@ -35,7 +34,8 @@ func TestReceive(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			br := NewBroker(WithReceiveTimeout(time.Second), WithRawMode(true))
+			br := NewBroker(WithReceiveTimeout(time.Second))
+			br.rawMode = true
 			br.Observe([]string{q})
 
 			t.Cleanup(func() {

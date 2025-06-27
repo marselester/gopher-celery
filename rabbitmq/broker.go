@@ -53,14 +53,6 @@ func WithReceiveTimeout(timeout time.Duration) BrokerOption {
 	}
 }
 
-// WithRawMode sets rawMode, which, if true, disables marshaling of data structures between internal and RabbitMQ Celery formats.
-// Note that rawMode defaults to false, and should only be set to true inside the broker unit tests.
-func WithRawMode(rawMode bool) BrokerOption {
-	return func(br *Broker) {
-		br.rawMode = rawMode
-	}
-}
-
 // WithClient sets RabbitMQ client representing a connection to RabbitMQ.
 func WithClient(c *amqp.Connection) BrokerOption {
 	return func(br *Broker) {

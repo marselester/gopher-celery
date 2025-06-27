@@ -109,8 +109,6 @@ $ go run ./consumer/
 received a=fizz b=bazz
 ```
 
-To send a task with Celery Protocol version 1, run *producer_v1.py* instead of *producer.py*.
-
 </details>
 
 <details>
@@ -179,7 +177,6 @@ $ go run ./retry/
 
 </details>
 
-
 ### RabbitMQ Examples
 
 RabbitMQ examples can be found in [the rabbitmq examples](examples/rabbitmq) dir.
@@ -217,10 +214,7 @@ $ go run ./consumer/
 received a=fizz b=bazz
 ```
 
-To send a task with Celery Protocol version 1, run *producer_v1.py* instead of *producer.py*.
-
 </details>
-
 
 ## Testing
 
