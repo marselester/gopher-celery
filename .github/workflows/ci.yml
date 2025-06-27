@@ -17,6 +17,10 @@ jobs:
       - uses: supercharge/redis-github-action@1.8.0
         with:
           redis-version: 7
+      - uses: namoshek/rabbitmq-github-action@v1
+        with:
+          version: '3.8.9'
+          ports: '5672:5672'
       - run: go test -count=1 -v ./...
   lint:
     runs-on: ubuntu-latest

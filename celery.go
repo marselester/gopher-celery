@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"time"
 
 	"github.com/go-kit/log"
@@ -147,10 +148,14 @@ func (a *App) Delay(path, queue string, args ...interface{}) error {
 // The call is blocking until ctx is cancelled.
 // The caller mustn't register any new tasks at this point.
 func (a *App) Run(ctx context.Context) error {
-	qq := make([]string, 0, len(a.taskQueue))
-	for k := range a.taskQueue {
-		qq = append(qq, a.taskQueue[k])
+	// Build list of all unique, non-empty queue names for registered tasks.
+	qq := []string{}
+	for _, v := range a.taskQueue {
+		if v != "" && slices.Index(qq, v) < 0 {
+			qq = append(qq, v)
+		}
 	}
+
 	a.conf.broker.Observe(qq)
 	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
 
