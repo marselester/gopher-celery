@@ -103,7 +103,7 @@ func NewBroker(options ...BrokerOption) *Broker {
 	return &br
 }
 
-// Send inserts the specified message at the head of the queue using LPUSH command.
+// Send inserts the specified message at the head of the queue.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
 	var headers map[string]interface{}
