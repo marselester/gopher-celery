@@ -2,10 +2,16 @@
 producer
 ~~~~~~~~
 
-This module sends a "myproject.mytask" task to the "important" queue, with Celery protocol version 2.
+This module sends a "myproject.mytask" task to "important" queue.
 
 """
+import argparse
+
 from celery import Celery
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--protocol', type=int, default=2, help='Celery protocol version')
+args = parser.parse_args()
 
 app = Celery(
     main='myproject',
@@ -13,7 +19,7 @@ app = Celery(
 )
 app.conf.update(
     CELERY_TASK_SERIALIZER='json',
-    CELERY_TASK_PROTOCOL=2,
+    CELERY_TASK_PROTOCOL=args.protocol,
 )
 
 
