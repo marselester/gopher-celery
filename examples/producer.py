@@ -2,10 +2,16 @@
 producer
 ~~~~~~~~
 
-This module sends two "myproject.mytask" tasks to "important" queue.
+This module sends a "myproject.mytask" task to "important" queue.
 
 """
+import argparse
+
 from celery import Celery
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--protocol', type=int, default=2, help='Celery protocol version')
+args = parser.parse_args()
 
 app = Celery(
     main='myproject',
@@ -13,16 +19,12 @@ app = Celery(
 )
 app.conf.update(
     CELERY_TASK_SERIALIZER='json',
-    CELERY_TASK_PROTOCOL=2,
+    CELERY_TASK_PROTOCOL=args.protocol,
 )
 
 
 @app.task
 def mytask(a, b):
     pass
-
-mytask.apply_async(args=('fizz',), kwargs={'b': 'bazz'}, queue='important')
-
-app.conf.update(CELERY_TASK_PROTOCOL=1)
 
 mytask.apply_async(args=('fizz',), kwargs={'b': 'bazz'}, queue='important')

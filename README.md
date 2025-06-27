@@ -100,10 +100,9 @@ $ celery --app myproject worker --queues important --loglevel=debug --without-he
 <summary>Sending tasks from Python and receiving them on Go side.</summary>
 
 ```sh
-$ python producer.py
+$ python producer.py --protocol=1
 $ go run ./consumer/
 {"msg":"waiting for tasks..."}
-received a=fizz b=bazz
 received a=fizz b=bazz
 ```
 
