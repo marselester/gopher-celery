@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-kit/log"
 	celery "github.com/marselester/gopher-celery"
-    celeryrabbitmq "github.com/marselester/gopher-celery/rabbitmq"
+	celeryrabbitmq "github.com/marselester/gopher-celery/rabbitmq"
 )
 
 func main() {
@@ -17,7 +17,7 @@ func main() {
 
 	broker := celeryrabbitmq.NewBroker(celeryrabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))
 	app := celery.NewApp(
-        celery.WithBroker(broker),
+		celery.WithBroker(broker),
 		celery.WithLogger(logger),
 	)
 	app.Register(
