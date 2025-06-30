@@ -68,6 +68,7 @@ func NewBroker(options ...BrokerOption) *Broker {
 		amqpUri:        DefaultAmqpUri,
 		receiveTimeout: DefaultReceiveTimeout * time.Second,
 		rawMode:        false,
+		delivery:       make(map[string]<-chan amqp.Delivery),
 		ctx:            context.Background(),
 	}
 	for _, opt := range options {
@@ -90,8 +91,6 @@ func NewBroker(options ...BrokerOption) *Broker {
 		log.Panicf("Failed to open a channel: %s", err)
 		return nil
 	}
-
-	br.delivery = make(map[string]<-chan amqp.Delivery)
 
 	return &br
 }
