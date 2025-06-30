@@ -33,7 +33,7 @@ type Broker struct {
 	queues         []string
 	conn           *amqp.Connection
 	channel        *amqp.Channel
-    delivery       map[string]<-chan amqp.Delivery
+	delivery       map[string]<-chan amqp.Delivery
 	ctx            context.Context
 }
 
@@ -91,7 +91,7 @@ func NewBroker(options ...BrokerOption) *Broker {
 		return nil
 	}
 
-    br.delivery = make(map[string]<-chan amqp.Delivery)
+	br.delivery = make(map[string]<-chan amqp.Delivery)
 
 	return &br
 }
@@ -180,24 +180,24 @@ func (br *Broker) Receive() ([]byte, error) {
 	// Put the Celery queue name to the end of the slice for fair processing.
 	broker.Move2back(br.queues, queue)
 
-    delivery, ok := br.delivery[queue]
-    if !ok {
-	    delivery, err := br.channel.Consume(
-		    queue, // queue
-		    "",    // consumer
-		    true,  // autoAck
-		    false, // exclusive
-		    false, // noLocal (ignored)
-		    false, // noWait
-		    nil,   // args
-	    )
-	    if err != nil {
-		    err_str := fmt.Errorf("%w", err)
-		    log.Printf("channel.Consume(): %s", err_str)
-		    return nil, nil
-	    }
-        br.delivery[queue] = delivery
-    }
+	delivery, ok := br.delivery[queue]
+	if !ok {
+		delivery, err := br.channel.Consume(
+			queue, // queue
+			"",    // consumer
+			true,  // autoAck
+			false, // exclusive
+			false, // noLocal (ignored)
+			false, // noWait
+			nil,   // args
+		)
+		if err != nil {
+			err_str := fmt.Errorf("%w", err)
+			log.Printf("channel.Consume(): %s", err_str)
+			return nil, nil
+		}
+		br.delivery[queue] = delivery
+	}
 
 	select {
 	case msg := <-delivery:
