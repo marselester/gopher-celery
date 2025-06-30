@@ -175,70 +175,64 @@ func (br *Broker) Observe(queues []string) {
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
+	queue := br.queues[0]
+	// Put the Celery queue name to the end of the slice for fair processing.
+	broker.Move2back(br.queues, queue)
 
-	const retryIntervalMs = 100
-
-	try_receive := func() (msg amqp.Delivery, ok bool, err error) {
-		queue := br.queues[0]
-		// Put the Celery queue name to the end of the slice for fair processing.
-		broker.Move2back(br.queues, queue)
-		my_msg, my_ok, my_err := br.channel.Get(queue, true)
-		if my_err != nil {
-			log.Printf("Failed to g a message: %s", my_err)
-		}
-		return my_msg, my_ok, my_err
-	}
-
-	startTime := time.Now()
-	timeoutTime := startTime.Add(br.receiveTimeout)
-	msg, ok, err := try_receive()
-	if err != nil {
-		return nil, nil
-	}
-	for !ok {
-		if time.Now().After(timeoutTime) {
-			return nil, nil
-		}
-		time.Sleep(retryIntervalMs * time.Millisecond)
-
-		msg, ok, err = try_receive()
-		if err != nil {
-			return nil, nil
-		}
-	}
-
-	if br.rawMode {
-		return msg.Body, nil
-	}
-
-	// Marshal msg from RabbitMQ Celery format to internal Celery format.
-
-	properties := make(map[string]interface{})
-	properties["correlation_id"] = msg.CorrelationId
-	properties["reply_to"] = msg.ReplyTo
-	properties["delivery_mode"] = msg.DeliveryMode
-	delivery_info := make(map[string]interface{})
-	properties["delivery_info"] = delivery_info
-	delivery_info["exchange"] = msg.Exchange
-	delivery_info["routing_key"] = msg.RoutingKey
-	properties["priority"] = msg.Priority
-	properties["body_encoding"] = "base64"
-	properties["delivery_tag"] = msg.DeliveryTag
-
-	imsg := make(map[string]interface{})
-	imsg["body"] = msg.Body
-	imsg["content-encoding"] = msg.ContentEncoding
-	imsg["content-type"] = msg.ContentType
-	imsg["headers"] = msg.Headers
-	imsg["properties"] = properties
-
-	var result []byte
-	result, err = json.Marshal(imsg)
+	delivery, err := br.channel.Consume(
+		queue, // queue
+		"",    // consumer
+		true,  // autoAck
+		false, // exclusive
+		false, // noLocal (ignored)
+		false, // noWait
+		nil,   // args
+	)
 	if err != nil {
 		err_str := fmt.Errorf("%w", err)
-		log.Printf("json encode: %s", err_str)
+		log.Printf("channel.Consume(): %s", err_str)
 		return nil, nil
 	}
 
-	return result, nil
+	select {
+	case msg := <-delivery:
+		if br.rawMode {
+			return msg.Body, nil
+		}
+
+		// Marshal msg from RabbitMQ Celery format to internal Celery format.
+
+		properties := make(map[string]interface{})
+		properties["correlation_id"] = msg.CorrelationId
+		properties["reply_to"] = msg.ReplyTo
+		properties["delivery_mode"] = msg.DeliveryMode
+		delivery_info := make(map[string]interface{})
+		properties["delivery_info"] = delivery_info
+		delivery_info["exchange"] = msg.Exchange
+		delivery_info["routing_key"] = msg.RoutingKey
+		properties["priority"] = msg.Priority
+		properties["body_encoding"] = "base64"
+		properties["delivery_tag"] = msg.DeliveryTag
+
+		imsg := make(map[string]interface{})
+		imsg["body"] = msg.Body
+		imsg["content-encoding"] = msg.ContentEncoding
+		imsg["content-type"] = msg.ContentType
+		imsg["headers"] = msg.Headers
+		imsg["properties"] = properties
+
+		var result []byte
+		result, err = json.Marshal(imsg)
+		if err != nil {
+			err_str := fmt.Errorf("%w", err)
+			log.Printf("json encode: %s", err_str)
+			return nil, nil
+		}
+
+		return result, nil
+
+	case <-time.After(br.receiveTimeout):
+		// Receive timeout
+		return nil, nil
+	}
 }
