@@ -76,21 +76,20 @@ func NewBroker(options ...BrokerOption) *Broker {
 	}
 
 	if br.conn == nil {
-		br.channel = nil
 		conn, err := amqp.Dial(br.amqpUri)
-		br.conn = conn
 		if err != nil {
 			log.Panicf("Failed to connect to RabbitMQ: %s", err)
 			return nil
 		}
+		br.conn = conn
 	}
 
 	channel, err := br.conn.Channel()
-	br.channel = channel
 	if err != nil {
 		log.Panicf("Failed to open a channel: %s", err)
 		return nil
 	}
+	br.channel = channel
 
 	return &br
 }
