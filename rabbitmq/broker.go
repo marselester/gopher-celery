@@ -168,6 +168,24 @@ func (br *Broker) Observe(queues []string) {
 		)
 		if err != nil {
 			log.Panicf("Failed to declare a queue: %s", err)
+		} else {
+			for _, queue := range queues {
+				delivery, err := br.channel.Consume(
+					queue, // queue
+					"",    // consumer
+					true,  // autoAck
+					false, // exclusive
+					false, // noLocal (ignored)
+					false, // noWait
+					nil,   // args
+				)
+				if err != nil {
+					err_str := fmt.Errorf("%w", err)
+					log.Panicf("channel.Consume() failed for queue %s: %s", queue, err_str)
+				} else {
+					br.delivery[queue] = delivery
+				}
+			}
 		}
 	}
 }
@@ -179,24 +197,7 @@ func (br *Broker) Receive() ([]byte, error) {
 	// Put the Celery queue name to the end of the slice for fair processing.
 	broker.Move2back(br.queues, queue)
 
-	delivery, ok := br.delivery[queue]
-	if !ok {
-		delivery, err := br.channel.Consume(
-			queue, // queue
-			"",    // consumer
-			true,  // autoAck
-			false, // exclusive
-			false, // noLocal (ignored)
-			false, // noWait
-			nil,   // args
-		)
-		if err != nil {
-			err_str := fmt.Errorf("%w", err)
-			log.Printf("channel.Consume(): %s", err_str)
-			return nil, nil
-		}
-		br.delivery[queue] = delivery
-	}
+	delivery := br.delivery[queue]
 
 	select {
 	case msg := <-delivery:
