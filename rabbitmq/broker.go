@@ -230,7 +230,7 @@ func (br *Broker) Receive() ([]byte, error) {
 		if err != nil {
 			err_str := fmt.Errorf("%w", err)
 			log.Printf("json encode: %s", err_str)
-			return nil, nil
+			return nil, err
 		}
 
 		return result, nil
