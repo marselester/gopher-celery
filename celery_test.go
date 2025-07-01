@@ -250,10 +250,15 @@ func TestRabbitmqProduceAndConsume100times(t *testing.T) {
 		WithLogger(log.NewJSONLogger(os.Stderr)),
 	)
 
+	queue := "rabbitmq_broker_test"
+
+	// Create the queue, if it doesn't exist.
+	app.conf.broker.Observe([]string{queue})
+
 	for i := 0; i < 100; i++ {
 		err := app.Delay(
 			"myproject.apps.myapp.tasks.mytask",
-			"important",
+			queue,
 			2,
 			3,
 		)
@@ -269,7 +274,7 @@ func TestRabbitmqProduceAndConsume100times(t *testing.T) {
 	var sum int32
 	app.Register(
 		"myproject.apps.myapp.tasks.mytask",
-		"important",
+		queue,
 		func(ctx context.Context, p *TaskParam) error {
 			p.NameArgs("a", "b")
 			atomic.AddInt32(
