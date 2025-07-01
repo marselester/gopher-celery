@@ -204,6 +204,7 @@ func (br *Broker) Receive() ([]byte, error) {
 	broker.Move2back(br.queues, queue)
 
 	var err error
+    var delivery <-chan amqp.Delivery
 
 	delivery, delivery_exists := br.delivery[queue]
 	if !delivery_exists {
