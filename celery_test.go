@@ -13,6 +13,7 @@ import (
 
 	"github.com/marselester/gopher-celery/goredis"
 	"github.com/marselester/gopher-celery/protocol"
+	"github.com/marselester/gopher-celery/rabbitmq"
 )
 
 func TestExecuteTaskPanic(t *testing.T) {
@@ -241,6 +242,57 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 	if want != sum {
 		t.Errorf("expected sum %d got %d", want, sum)
 	}
+}
+
+func TestRabbitmqProduceAndConsume100times(t *testing.T) {
+	app := NewApp(
+		WithBroker(rabbitmq.NewBroker(rabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))),
+		WithLogger(log.NewJSONLogger(os.Stderr)),
+	)
+
+	queue := "rabbitmq_broker_test"
+
+	// Create the queue, if it doesn't exist.
+	app.conf.broker.Observe([]string{queue})
+
+	for i := 0; i < 100; i++ {
+		err := app.Delay(
+			"myproject.apps.myapp.tasks.mytask",
+			queue,
+			2,
+			3,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The test finishes either when ctx times out or all the tasks finish.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	t.Cleanup(cancel)
+
+	var sum int32
+	app.Register(
+		"myproject.apps.myapp.tasks.mytask",
+		queue,
+		func(ctx context.Context, p *TaskParam) error {
+			p.NameArgs("a", "b")
+			atomic.AddInt32(
+				&sum,
+				int32(p.MustInt("a")+p.MustInt("b")),
+			)
+			return nil
+		},
+	)
+	if err := app.Run(ctx); err != nil {
+		t.Error(err)
+	}
+
+	var want int32 = 500
+	if want != sum {
+		t.Errorf("expected sum %d got %d", want, sum)
+	}
+
 }
 
 func TestConsumeSequentially(t *testing.T) {

@@ -3,7 +3,6 @@
 package rabbitmq
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -33,7 +32,7 @@ type Broker struct {
 	queues         []string
 	conn           *amqp.Connection
 	channel        *amqp.Channel
-	ctx            context.Context
+	delivery       map[string]<-chan amqp.Delivery
 }
 
 // WithAmqpUri sets the AMQP connection URI to RabbitMQ.
@@ -67,30 +66,27 @@ func NewBroker(options ...BrokerOption) *Broker {
 		amqpUri:        DefaultAmqpUri,
 		receiveTimeout: DefaultReceiveTimeout * time.Second,
 		rawMode:        false,
-		ctx:            context.Background(),
+		delivery:       make(map[string]<-chan amqp.Delivery),
 	}
 	for _, opt := range options {
 		opt(&br)
 	}
 
 	if br.conn == nil {
-		br.channel = nil
 		conn, err := amqp.Dial(br.amqpUri)
-		br.conn = conn
 		if err != nil {
 			log.Panicf("Failed to connect to RabbitMQ: %s", err)
 			return nil
 		}
+		br.conn = conn
 	}
 
-	if br.channel == nil {
-		channel, err := br.conn.Channel()
-		br.channel = channel
-		if err != nil {
-			log.Panicf("Failed to open a channel: %s", err)
-			return nil
-		}
+	channel, err := br.conn.Channel()
+	if err != nil {
+		log.Panicf("Failed to open a channel: %s", err)
+		return nil
 	}
+	br.channel = channel
 
 	return &br
 }
@@ -135,8 +131,7 @@ func (br *Broker) Send(m []byte, q string) error {
 		replyTo = properties_in["reply_to"].(string)
 	}
 
-	err := br.channel.PublishWithContext(
-		br.ctx,
+	err := br.channel.Publish(
 		"",    // exchange
 		q,     // routing key
 		false, // mandatory
@@ -150,6 +145,7 @@ func (br *Broker) Send(m []byte, q string) error {
 			ReplyTo:         replyTo,
 			Body:            body,
 		})
+
 	return err
 }
 
@@ -158,16 +154,44 @@ func (br *Broker) Send(m []byte, q string) error {
 func (br *Broker) Observe(queues []string) {
 	br.queues = queues
 	for _, queue := range queues {
-		_, err := br.channel.QueueDeclare(
-			queue, // name
-			true,  // durable
-			false, // delete when unused
-			false, // exclusive
-			false, // no-wait
-			nil,   // arguments
+		durable := true
+		autoDelete := false
+		exclusive := false
+		noWait := false
+
+		// Check whether the queue exists.
+		_, err := br.channel.QueueDeclarePassive(
+			queue,
+			durable,
+			autoDelete,
+			exclusive,
+			noWait,
+			nil,
 		)
+
+		// If the queue doesn't exist, attempt to create it.
 		if err != nil {
-			log.Panicf("Failed to declare a queue: %s", err)
+			// QueueDeclarePassive() will close the channel if the queue does not exist, so we have to create a new channel when this happens.
+			if br.channel.IsClosed() {
+				channel, err := br.conn.Channel()
+				if err != nil {
+					log.Panicf("Failed to open a channel: %s", err)
+				}
+				br.channel = channel
+			}
+
+			_, err := br.channel.QueueDeclare(
+				queue,
+				durable,
+				autoDelete,
+				exclusive,
+				noWait,
+				nil,
+			)
+
+			if err != nil {
+				log.Panicf("Failed to declare a queue: %s", err)
+			}
 		}
 	}
 }
@@ -175,70 +199,69 @@ func (br *Broker) Observe(queues []string) {
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
 // After a timeout it returns nil, nil.
 func (br *Broker) Receive() ([]byte, error) {
+	queue := br.queues[0]
+	// Put the Celery queue name to the end of the slice for fair processing.
+	broker.Move2back(br.queues, queue)
 
-	const retryIntervalMs = 100
+	var err error
 
-	try_receive := func() (msg amqp.Delivery, ok bool, err error) {
-		queue := br.queues[0]
-		// Put the Celery queue name to the end of the slice for fair processing.
-		broker.Move2back(br.queues, queue)
-		my_msg, my_ok, my_err := br.channel.Get(queue, true)
-		if my_err != nil {
-			log.Printf("Failed to g a message: %s", my_err)
-		}
-		return my_msg, my_ok, my_err
-	}
+	delivery, delivery_exists := br.delivery[queue]
+	if !delivery_exists {
+		delivery, err = br.channel.Consume(
+			queue, // queue
+			"",    // consumer
+			true,  // autoAck
+			false, // exclusive
+			false, // noLocal (ignored)
+			false, // noWait
+			nil,   // args
+		)
 
-	startTime := time.Now()
-	timeoutTime := startTime.Add(br.receiveTimeout)
-	msg, ok, err := try_receive()
-	if err != nil {
-		return nil, nil
-	}
-	for !ok {
-		if time.Now().After(timeoutTime) {
-			return nil, nil
-		}
-		time.Sleep(retryIntervalMs * time.Millisecond)
-
-		msg, ok, err = try_receive()
 		if err != nil {
-			return nil, nil
+			return nil, err
 		}
+
+		br.delivery[queue] = delivery
 	}
 
-	if br.rawMode {
-		return msg.Body, nil
-	}
+	select {
+	case msg := <-delivery:
+		if br.rawMode {
+			return msg.Body, nil
+		}
 
-	// Marshal msg from RabbitMQ Celery format to internal Celery format.
+		// Marshal msg from RabbitMQ Celery format to internal Celery format.
 
-	properties := make(map[string]interface{})
-	properties["correlation_id"] = msg.CorrelationId
-	properties["reply_to"] = msg.ReplyTo
-	properties["delivery_mode"] = msg.DeliveryMode
-	delivery_info := make(map[string]interface{})
-	properties["delivery_info"] = delivery_info
-	delivery_info["exchange"] = msg.Exchange
-	delivery_info["routing_key"] = msg.RoutingKey
-	properties["priority"] = msg.Priority
-	properties["body_encoding"] = "base64"
-	properties["delivery_tag"] = msg.DeliveryTag
+		properties := make(map[string]interface{})
+		properties["correlation_id"] = msg.CorrelationId
+		properties["reply_to"] = msg.ReplyTo
+		properties["delivery_mode"] = msg.DeliveryMode
+		properties["delivery_info"] = map[string]interface{}{
+			"exchange":    msg.Exchange,
+			"routing_key": msg.RoutingKey,
+		}
+		properties["priority"] = msg.Priority
+		properties["body_encoding"] = "base64"
+		properties["delivery_tag"] = msg.DeliveryTag
 
-	imsg := make(map[string]interface{})
-	imsg["body"] = msg.Body
-	imsg["content-encoding"] = msg.ContentEncoding
-	imsg["content-type"] = msg.ContentType
-	imsg["headers"] = msg.Headers
-	imsg["properties"] = properties
+		imsg := make(map[string]interface{})
+		imsg["body"] = msg.Body
+		imsg["content-encoding"] = msg.ContentEncoding
+		imsg["content-type"] = msg.ContentType
+		imsg["headers"] = msg.Headers
+		imsg["properties"] = properties
 
-	var result []byte
-	result, err = json.Marshal(imsg)
-	if err != nil {
-		err_str := fmt.Errorf("%w", err)
-		log.Printf("json encode: %s", err_str)
+		var result []byte
+		result, err := json.Marshal(imsg)
+		if err != nil {
+			err_str := fmt.Errorf("%w", err)
+			log.Printf("json encode: %s", err_str)
+			return nil, err
+		}
+		return result, nil
+
+	case <-time.After(br.receiveTimeout):
+		// Receive timeout
 		return nil, nil
 	}
-
-	return result, nil
 }
