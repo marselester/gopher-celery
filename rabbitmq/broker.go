@@ -3,7 +3,6 @@
 package rabbitmq
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -34,7 +33,6 @@ type Broker struct {
 	conn           *amqp.Connection
 	channel        *amqp.Channel
 	delivery       map[string]<-chan amqp.Delivery
-	ctx            context.Context
 }
 
 // WithAmqpUri sets the AMQP connection URI to RabbitMQ.
@@ -69,7 +67,6 @@ func NewBroker(options ...BrokerOption) *Broker {
 		receiveTimeout: DefaultReceiveTimeout * time.Second,
 		rawMode:        false,
 		delivery:       make(map[string]<-chan amqp.Delivery),
-		ctx:            context.Background(),
 	}
 	for _, opt := range options {
 		opt(&br)
@@ -134,8 +131,7 @@ func (br *Broker) Send(m []byte, q string) error {
 		replyTo = properties_in["reply_to"].(string)
 	}
 
-	err := br.channel.PublishWithContext(
-		br.ctx,
+	err := br.channel.Publish(
 		"",    // exchange
 		q,     // routing key
 		false, // mandatory
@@ -149,6 +145,7 @@ func (br *Broker) Send(m []byte, q string) error {
 			ReplyTo:         replyTo,
 			Body:            body,
 		})
+
 	return err
 }
 
@@ -157,33 +154,43 @@ func (br *Broker) Send(m []byte, q string) error {
 func (br *Broker) Observe(queues []string) {
 	br.queues = queues
 	for _, queue := range queues {
-		_, err := br.channel.QueueDeclare(
-			queue, // name
-			true,  // durable
-			false, // delete when unused
-			false, // exclusive
-			false, // no-wait
-			nil,   // arguments
+		durable := true
+		autoDelete := false
+		exclusive := false
+		noWait := false
+
+		// Check whether the queue exists.
+		_, err := br.channel.QueueDeclarePassive(
+			queue,
+			durable,
+			autoDelete,
+			exclusive,
+			noWait,
+			nil,
 		)
+
+		// If the queue doesn't exist, attempt to create it.
 		if err != nil {
-			log.Panicf("Failed to declare a queue: %s", err)
-		} else {
-			for _, queue := range queues {
-				delivery, err := br.channel.Consume(
-					queue, // queue
-					"",    // consumer
-					true,  // autoAck
-					false, // exclusive
-					false, // noLocal (ignored)
-					false, // noWait
-					nil,   // args
-				)
+			// QueueDeclarePassive() will close the channel if the queue does not exist, so we have to create a new channel when this happens.
+			if br.channel.IsClosed() {
+				channel, err := br.conn.Channel()
 				if err != nil {
-					err_str := fmt.Errorf("%w", err)
-					log.Panicf("channel.Consume() failed for queue %s: %s", queue, err_str)
-				} else {
-					br.delivery[queue] = delivery
+					log.Panicf("Failed to open a channel: %s", err)
 				}
+				br.channel = channel
+			}
+
+			_, err := br.channel.QueueDeclare(
+				queue,
+				durable,
+				autoDelete,
+				exclusive,
+				noWait,
+				nil,
+			)
+
+			if err != nil {
+				log.Panicf("Failed to declare a queue: %s", err)
 			}
 		}
 	}
@@ -196,10 +203,29 @@ func (br *Broker) Receive() ([]byte, error) {
 	// Put the Celery queue name to the end of the slice for fair processing.
 	broker.Move2back(br.queues, queue)
 
-	delivery := br.delivery[queue]
+	var err error
+
+	delivery, delivery_exists := br.delivery[queue]
+	if !delivery_exists {
+		delivery, err = br.channel.Consume(
+			queue, // queue
+			"",    // consumer
+			true,  // autoAck
+			false, // exclusive
+			false, // noLocal (ignored)
+			false, // noWait
+			nil,   // args
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		br.delivery[queue] = delivery
+	}
 
 	select {
-	case msg := <-delivery:
+	case msg := <-br.delivery[queue]:
 		if br.rawMode {
 			return msg.Body, nil
 		}
@@ -232,7 +258,6 @@ func (br *Broker) Receive() ([]byte, error) {
 			log.Printf("json encode: %s", err_str)
 			return nil, err
 		}
-
 		return result, nil
 
 	case <-time.After(br.receiveTimeout):

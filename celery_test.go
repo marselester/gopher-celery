@@ -245,10 +245,11 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 }
 
 func TestRabbitmqProduceAndConsume100times(t *testing.T) {
-    app := NewApp(
-        WithBroker(rabbitmq.NewBroker(rabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))),
+	app := NewApp(
+		WithBroker(rabbitmq.NewBroker(rabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))),
 		WithLogger(log.NewJSONLogger(os.Stderr)),
-    )
+	)
+
 	for i := 0; i < 100; i++ {
 		err := app.Delay(
 			"myproject.apps.myapp.tasks.mytask",
@@ -262,7 +263,7 @@ func TestRabbitmqProduceAndConsume100times(t *testing.T) {
 	}
 
 	// The test finishes either when ctx times out or all the tasks finish.
-	ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	t.Cleanup(cancel)
 
 	var sum int32
@@ -286,6 +287,7 @@ func TestRabbitmqProduceAndConsume100times(t *testing.T) {
 	if want != sum {
 		t.Errorf("expected sum %d got %d", want, sum)
 	}
+
 }
 
 func TestConsumeSequentially(t *testing.T) {
