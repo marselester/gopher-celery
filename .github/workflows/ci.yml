@@ -19,7 +19,7 @@ jobs:
           redis-version: 7
       - uses: nijel/rabbitmq-action@v1.0.0
         with:
-          rabbitmq version: '5'
+          rabbitmq version: '4'
       - run: go test -count=1 -v ./...
   lint:
     runs-on: ubuntu-latest
