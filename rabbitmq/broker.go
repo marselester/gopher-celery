@@ -237,7 +237,7 @@ func (br *Broker) Receive() ([]byte, error) {
 		properties["reply_to"] = msg.ReplyTo
 		properties["delivery_mode"] = msg.DeliveryMode
 		properties["delivery_info"] = map[string]interface{}{
-			"exchange": msg.Exchange,
+			"exchange":    msg.Exchange,
 			"routing_key": msg.RoutingKey,
 		}
 		properties["priority"] = msg.Priority
