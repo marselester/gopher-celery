@@ -82,8 +82,9 @@ func (br *Broker) Send(m []byte, q string) error {
 
 // Observe sets the queues from which the tasks should be received.
 // Note, the method is not concurrency safe.
-func (br *Broker) Observe(queues []string) {
+func (br *Broker) Observe(queues []string) error {
 	br.queues = queues
+	return nil
 }
 
 // Receive fetches a Celery task message from a tail of one of the queues in Redis.

@@ -34,7 +34,11 @@ func TestReceive(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			br := NewBroker(WithReceiveTimeout(time.Second))
+			br, err := NewBroker(WithReceiveTimeout(time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			br.rawMode = true
 			br.Observe([]string{q})
 

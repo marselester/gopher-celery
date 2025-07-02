@@ -109,10 +109,12 @@ $ go run ./consumer/
 received a=fizz b=bazz
 ```
 
-To send a task with Celery Protocol version 1, run *producer.py* with the *--protocol=1* command-line argument:
+To send a task with Celery Protocol version 1, run *producer.py* with the `--protocol=1` command-line argument.
+
 ```sh
 $ python producer.py --protocol=1
 ```
+
 </details>
 
 <details>
@@ -218,10 +220,12 @@ $ go run ./consumer/
 received a=fizz b=bazz
 ```
 
-To send a task with Celery Protocol version 1, run *producer.py* with the *--protocol=1* command-line argument:
+To send a task with Celery Protocol version 1, run *producer.py* with the `--protocol=1` command-line argument.
+
 ```sh
 $ python producer.py --protocol=1
 ```
+
 </details>
 
 ## Testing

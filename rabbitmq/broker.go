@@ -5,8 +5,6 @@ package rabbitmq
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"log"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -61,7 +59,7 @@ func WithClient(c *amqp.Connection) BrokerOption {
 
 // NewBroker creates a broker backed by RabbitMQ.
 // By default, it connects to localhost.
-func NewBroker(options ...BrokerOption) *Broker {
+func NewBroker(options ...BrokerOption) (*Broker, error) {
 	br := Broker{
 		amqpUri:        DefaultAmqpUri,
 		receiveTimeout: DefaultReceiveTimeout * time.Second,
@@ -75,32 +73,34 @@ func NewBroker(options ...BrokerOption) *Broker {
 	if br.conn == nil {
 		conn, err := amqp.Dial(br.amqpUri)
 		if err != nil {
-			log.Panicf("Failed to connect to RabbitMQ: %s", err)
-			return nil
+			return nil, err
 		}
+
 		br.conn = conn
 	}
 
 	channel, err := br.conn.Channel()
 	if err != nil {
-		log.Panicf("Failed to open a channel: %s", err)
-		return nil
+		return nil, err
 	}
+
 	br.channel = channel
 
-	return &br
+	return &br, nil
 }
 
 // Send inserts the specified message at the head of the queue.
 // Note, the method is safe to call concurrently.
 func (br *Broker) Send(m []byte, q string) error {
-	var headers map[string]interface{}
-	var body []byte
-	var contentType string
-	var contentEncoding string
-	var deliveryMode uint8
-	var correlationId string
-	var replyTo string
+	var (
+		headers         map[string]interface{}
+		body            []byte
+		contentType     string
+		contentEncoding string
+		deliveryMode    uint8
+		correlationId   string
+		replyTo         string
+	)
 
 	if br.rawMode {
 		headers = make(amqp.Table)
@@ -131,7 +131,7 @@ func (br *Broker) Send(m []byte, q string) error {
 		replyTo = properties_in["reply_to"].(string)
 	}
 
-	err := br.channel.Publish(
+	return br.channel.Publish(
 		"",    // exchange
 		q,     // routing key
 		false, // mandatory
@@ -145,21 +145,22 @@ func (br *Broker) Send(m []byte, q string) error {
 			ReplyTo:         replyTo,
 			Body:            body,
 		})
-
-	return err
 }
 
 // Observe sets the queues from which the tasks should be received.
 // Note, the method is not concurrency safe.
-func (br *Broker) Observe(queues []string) {
+func (br *Broker) Observe(queues []string) error {
 	br.queues = queues
-	for _, queue := range queues {
-		durable := true
-		autoDelete := false
-		exclusive := false
-		noWait := false
 
+	var (
+		durable    = true
+		autoDelete = false
+		exclusive  = false
+		noWait     = false
+	)
+	for _, queue := range queues {
 		// Check whether the queue exists.
+		// If the queue doesn't exist, attempt to create it.
 		_, err := br.channel.QueueDeclarePassive(
 			queue,
 			durable,
@@ -168,19 +169,19 @@ func (br *Broker) Observe(queues []string) {
 			noWait,
 			nil,
 		)
-
-		// If the queue doesn't exist, attempt to create it.
 		if err != nil {
-			// QueueDeclarePassive() will close the channel if the queue does not exist, so we have to create a new channel when this happens.
+			// QueueDeclarePassive() will close the channel if the queue does not exist,
+			// so we have to create a new channel when this happens.
 			if br.channel.IsClosed() {
 				channel, err := br.conn.Channel()
 				if err != nil {
-					log.Panicf("Failed to open a channel: %s", err)
+					return err
 				}
+
 				br.channel = channel
 			}
 
-			_, err := br.channel.QueueDeclare(
+			_, err = br.channel.QueueDeclare(
 				queue,
 				durable,
 				autoDelete,
@@ -188,12 +189,13 @@ func (br *Broker) Observe(queues []string) {
 				noWait,
 				nil,
 			)
-
 			if err != nil {
-				log.Panicf("Failed to declare a queue: %s", err)
+				return err
 			}
 		}
 	}
+
+	return nil
 }
 
 // Receive fetches a Celery task message from a tail of one of the queues in RabbitMQ.
@@ -205,8 +207,8 @@ func (br *Broker) Receive() ([]byte, error) {
 
 	var err error
 
-	delivery, delivery_exists := br.delivery[queue]
-	if !delivery_exists {
+	delivery, deliveryExists := br.delivery[queue]
+	if !deliveryExists {
 		delivery, err = br.channel.Consume(
 			queue, // queue
 			"",    // consumer
@@ -216,7 +218,6 @@ func (br *Broker) Receive() ([]byte, error) {
 			false, // noWait
 			nil,   // args
 		)
-
 		if err != nil {
 			return nil, err
 		}
@@ -254,10 +255,9 @@ func (br *Broker) Receive() ([]byte, error) {
 		var result []byte
 		result, err := json.Marshal(imsg)
 		if err != nil {
-			err_str := fmt.Errorf("%w", err)
-			log.Printf("json encode: %s", err_str)
 			return nil, err
 		}
+
 		return result, nil
 
 	case <-time.After(br.receiveTimeout):
