@@ -34,7 +34,7 @@ type Broker interface {
 	Send(msg []byte, queue string) error
 	// Observe sets the queues from which the tasks should be received.
 	// Note, the method is not concurrency safe.
-	Observe(queues []string)
+	Observe(queues []string) error
 	// Receive returns a raw message from one of the queues.
 	// It blocks until there is a message available for consumption.
 	// Note, the method is not concurrency safe.
@@ -156,7 +156,11 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}
 
-	a.conf.broker.Observe(qq)
+	err := a.conf.broker.Observe(qq)
+	if err != nil {
+		return err
+	}
+
 	level.Debug(a.conf.logger).Log("msg", "observing queues", "queues", qq)
 
 	// Tasks are processed concurrently only if there are multiple workers.

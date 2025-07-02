@@ -245,8 +245,13 @@ func TestGoredisProduceAndConsume100times(t *testing.T) {
 }
 
 func TestRabbitmqProduceAndConsume100times(t *testing.T) {
+	br, err := rabbitmq.NewBroker()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	app := NewApp(
-		WithBroker(rabbitmq.NewBroker(rabbitmq.WithAmqpUri("amqp://guest:guest@localhost:5672/"))),
+		WithBroker(br),
 		WithLogger(log.NewJSONLogger(os.Stderr)),
 	)
 
