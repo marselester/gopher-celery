@@ -8,8 +8,8 @@ import (
 	"os/signal"
 
 	"github.com/go-kit/log"
-	celery "github.com/marselester/gopher-celery"
-	celeryrabbitmq "github.com/marselester/gopher-celery/rabbitmq"
+	celery "github.com/lagerstrom/gopher-celery"
+	celeryrabbitmq "github.com/lagerstrom/gopher-celery/rabbitmq"
 )
 
 func main() {

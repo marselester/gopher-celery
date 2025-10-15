@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
-	celery "github.com/marselester/gopher-celery"
-	celeryredis "github.com/marselester/gopher-celery/goredis"
+	celery "github.com/lagerstrom/gopher-celery"
+	celeryredis "github.com/lagerstrom/gopher-celery/goredis"
 	"github.com/redis/go-redis/v9"
 )
 

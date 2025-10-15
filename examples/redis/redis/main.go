@@ -11,8 +11,8 @@ import (
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/gomodule/redigo/redis"
-	celery "github.com/marselester/gopher-celery"
-	celeryredis "github.com/marselester/gopher-celery/redis"
+	celery "github.com/lagerstrom/gopher-celery"
+	celeryredis "github.com/lagerstrom/gopher-celery/redis"
 )
 
 func main() {

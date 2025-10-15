@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/go-kit/log"
-	celery "github.com/marselester/gopher-celery"
+	celery "github.com/lagerstrom/gopher-celery"
 )
 
 func main() {

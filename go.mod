@@ -1,4 +1,4 @@
-module github.com/marselester/gopher-celery
+module github.com/lagerstrom/gopher-celery
 
 go 1.19
 
