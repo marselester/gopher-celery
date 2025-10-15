@@ -286,7 +286,8 @@ type contextKey int
 const (
 	// ContextKeyTaskName is a context key to access task names.
 	ContextKeyTaskName contextKey = iota
-	ContextKeyTaskId
+	// ContextKeyTaskID is a context key to access task IDs.
+	ContextKeyTaskID
 )
 
 // executeTask calls the task function with args and kwargs from the message.
