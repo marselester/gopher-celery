@@ -306,7 +306,7 @@ func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyTaskName, m.Name)
-	ctx = context.WithValue(ctx, ContextKeyTaskId, m.ID)
+	ctx = context.WithValue(ctx, ContextKeyTaskID, m.ID)
 	p := NewTaskParam(m.Args, m.Kwargs)
 	return task(ctx, p)
 }
