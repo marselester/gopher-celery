@@ -286,6 +286,8 @@ type contextKey int
 const (
 	// ContextKeyTaskName is a context key to access task names.
 	ContextKeyTaskName contextKey = iota
+	// ContextKeyTaskID is a context key to access task IDs.
+	ContextKeyTaskID
 )
 
 // executeTask calls the task function with args and kwargs from the message.
@@ -304,6 +306,7 @@ func (a *App) executeTask(ctx context.Context, m *protocol.Task) (err error) {
 	}
 
 	ctx = context.WithValue(ctx, ContextKeyTaskName, m.Name)
+	ctx = context.WithValue(ctx, ContextKeyTaskID, m.ID)
 	p := NewTaskParam(m.Args, m.Kwargs)
 	return task(ctx, p)
 }
